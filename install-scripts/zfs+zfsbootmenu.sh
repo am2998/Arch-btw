@@ -117,43 +117,56 @@ zpool create \
     -O acltype=posixacl -O canmount=off -O compression=lz4 \
     -O dnodesize=auto -O normalization=formD -o autotrim=on \
     -O atime=off -O xattr=sa -O mountpoint=none \
-    -R /mnt zroot ${DISK}${PARTITION_2} -f
+    -R /mnt zroot ${DISK}${PARTITION_2} -f || error_exit "Failed to create ZFS pool"
 echo "ZFS pool created successfully."
 
-zfs create -o canmount=noauto -o mountpoint=/ zroot/rootfs
-echo "ZFS dataset created successfully."
+# Dataset layout (best-practice style)
+# - zroot/ROOT/default is the bootable root dataset
+# - separate datasets for /home and /var improve manageability and snapshots
+zfs create -o canmount=off -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT"
+zfs create -o canmount=noauto -o mountpoint=/ zroot/ROOT/default || error_exit "Failed to create root dataset"
 
-zpool set bootfs=zroot/rootfs zroot
+zfs create -o mountpoint=/home zroot/home || error_exit "Failed to create /home dataset"
+zfs create -o mountpoint=/root zroot/root || error_exit "Failed to create /root dataset"
+
+zfs create -o canmount=off -o mountpoint=/var zroot/var || error_exit "Failed to create /var dataset"
+
+zfs create -o mountpoint=/tmp -o setuid=off -o devices=off zroot/tmp || error_exit "Failed to create /tmp dataset"
+
+zpool set bootfs=zroot/ROOT/default zroot || error_exit "Failed to set bootfs property"
 echo "bootfs property set successfully."
 
-zfs mount zroot/rootfs
+zfs mount zroot/ROOT/default || error_exit "Failed to mount root dataset"
+zfs mount -a || error_exit "Failed to mount ZFS datasets"
 
-mkdir -p  /mnt/etc/zfs
-zpool set cachefile=/etc/zfs/zpool.cache zroot
-cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache
+mkdir -p /mnt/etc/zfs || error_exit "Failed to create /mnt/etc/zfs"
+zpool set cachefile=/etc/zfs/zpool.cache zroot || error_exit "Failed to set ZFS cachefile"
+cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache || error_exit "Failed to copy zpool.cache"
 
-mkfs.fat -F32 ${DISK}${PARTITION_1}   
-mkdir -p /mnt/efi && mount ${DISK}${PARTITION_1} /mnt/efi
+mkfs.fat -F32 ${DISK}${PARTITION_1} || error_exit "Failed to format EFI partition"
+mkdir -p /mnt/efi || error_exit "Failed to create /mnt/efi"
+mount ${DISK}${PARTITION_1} /mnt/efi || error_exit "Failed to mount EFI partition"
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Install base system"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Generate fstab file"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-genfstab -U /mnt >> /mnt/etc/fstab
+genfstab -U /mnt >> /mnt/etc/fstab || error_exit "Failed to generate fstab"
+echo "fstab generated successfully."
 
-
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
+echo -e"\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Chroot into the system and configure"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
+echo "Entering chroot to configure the system..."
 arch-chroot /mnt \
     /usr/bin/env DISK="$DISK" USER="$USER" USERPASS="$USERPASS" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
     /bin/bash --noprofile --norc -euo pipefail <<'EOF'
@@ -175,6 +188,15 @@ set +o xtrace || true
 reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 systemctl enable NetworkManager
 systemctl mask NetworkManager-wait-online.service
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Configure locale
+# --------------------------------------------------------------------------------------------------------------------------
+
+localectl set-keymap us
+echo "KEYMAP=us" > /etc/vconsole.conf
+echo "Locale and keymap configured."
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
@@ -200,7 +222,7 @@ systemctl enable zfs.target zfs-import-cache zfs-mount zfs-import.target
 mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI
 efibootmgr --disk $DISK --part 1 --create --label "ZFSBootMenu" --loader '\EFI\zbm\zfsbootmenu.EFI' --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" --verbose
-zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/rootfs
+zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT/default
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -244,8 +266,6 @@ pacman -Syy
 
 echo "$HOSTNAME" > /etc/hostname
 
-localectl set-keymap us && echo "KEYMAP=us" > /etc/vconsole.conf
-
 ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
 
 hwclock --systohc
@@ -257,52 +277,52 @@ sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
 echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Install utilities and Enable services
-# --------------------------------------------------------------------------------------------------------------------------
+# # --------------------------------------------------------------------------------------------------------------------------
+# # Install utilities and Enable services
+# # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm net-tools flatpak git man nano
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Install KDE desktop environment
-# --------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --noconfirm plasma-meta kde-applications-meta sddm
-systemctl enable sddm.service
-
-# Configure SDDM with Breeze theme and Wayland
-mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
+# pacman -S --noconfirm net-tools flatpak git man nano
 
 
-bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOF
-[Theme]
-Current=breeze
-CursorTheme=breeze_cursors
+# # --------------------------------------------------------------------------------------------------------------------------
+# # Install KDE desktop environment
+# # --------------------------------------------------------------------------------------------------------------------------
 
-[General]
-Numlock=on
-DisplayServer=wayland
-GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+# pacman -S --noconfirm plasma-meta kde-applications-meta sddm
+# systemctl enable sddm.service
 
-[Wayland]
-SessionDir=/usr/share/wayland-sessions
-CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
-EOF'
+# # Configure SDDM with Breeze theme and Wayland
+# mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Install audio components
-# --------------------------------------------------------------------------------------------------------------------------
+# bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOF
+# [Theme]
+# Current=breeze
+# CursorTheme=breeze_cursors
 
-pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+# [General]
+# Numlock=on
+# DisplayServer=wayland
+# GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+
+# [Wayland]
+# SessionDir=/usr/share/wayland-sessions
+# CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
+# EOF'
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Install NVIDIA drivers
-# --------------------------------------------------------------------------------------------------------------------------
+# # --------------------------------------------------------------------------------------------------------------------------
+# # Install audio components
+# # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+# pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+
+
+# # --------------------------------------------------------------------------------------------------------------------------
+# # Install NVIDIA drivers
+# # --------------------------------------------------------------------------------------------------------------------------
+
+# pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
 # --------------------------------------------------------------------------------------------------------------------------
