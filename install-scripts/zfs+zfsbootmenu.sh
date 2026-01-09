@@ -1,28 +1,38 @@
 #!/bin/bash
 
-# ZFS + ZFS BOOTMENU
-# GNOME
+# Arch Linux + ZFS + ZFSBootMenu + KDE Plasma Installation Script
+# Optimized and hardened version
 
-cat <<'EOF'
- ______                                             ______                       __              _______   ________  __       __ 
-/      |                                           /      \                     /  |            /       \ /        |/  |  _  /  |
-$$$$$$/        __    __   _______   ______        /$$$$$$  |  ______    _______ $$ |____        $$$$$$$  |$$$$$$$$/ $$ | / \ $$ |
-  $$ |        /  |  /  | /       | /      \       $$ |__$$ | /      \  /       |$$      \       $$ |__$$ |   $$ |   $$ |/$  \$$ |
-  $$ |        $$ |  $$ |/$$$$$$$/ /$$$$$$  |      $$    $$ |/$$$$$$  |/$$$$$$$/ $$$$$$$  |      $$    $$<    $$ |   $$ /$$$  $$ |
-  $$ |        $$ |  $$ |$$      \ $$    $$ |      $$$$$$$$ |$$ |  $$/ $$ |      $$ |  $$ |      $$$$$$$  |   $$ |   $$ $$/$$ $$ |
- _$$ |_       $$ \__$$ | $$$$$$  |$$$$$$$$/       $$ |  $$ |$$ |      $$ \_____ $$ |  $$ |      $$ |__$$ |   $$ |   $$$$/  $$$$ |
-/ $$   |      $$    $$/ /     $$/ $$       |      $$ |  $$ |$$ |      $$       |$$ |  $$ |      $$    $$/    $$ |   $$$/    $$$ |
-$$$$$$/        $$$$$$/  $$$$$$$/   $$$$$$$/       $$/   $$/ $$/        $$$$$$$/ $$/   $$/       $$$$$$$/     $$/    $$/      $$/ 
-                                                                                                                                 
-EOF
-
-
-exec > >(tee -a result.log) 2>&1
-
+set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Prompt for user and system settings                                                                                      
+# Helper Functions
 # --------------------------------------------------------------------------------------------------------------------------
+
+error_exit() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
+
+validate_username() {
+    local username=$1
+    if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+        error_exit "Invalid username. Use only lowercase letters, numbers, underscore and hyphen."
+    fi
+    if [ ${#username} -gt 32 ]; then
+        error_exit "Username too long (max 32 characters)."
+    fi
+}
+
+validate_hostname() {
+    local hostname=$1
+    if [[ ! "$hostname" =~ ^[a-z0-9-]+$ ]]; then
+        error_exit "Invalid hostname. Use only lowercase letters, numbers and hyphen."
+    fi
+    if [ ${#hostname} -gt 63 ]; then
+        error_exit "Hostname too long (max 63 characters)."
+    fi
+}
 
 get_password() {
     local prompt=$1
@@ -31,25 +41,34 @@ get_password() {
 
     while true; do
         echo -n "$prompt: "; read -r -s password_var; echo
+        if [ ${#password_var} -lt 8 ]; then
+            echo "Password must be at least 8 characters long."
+            continue
+        fi
         echo -n "Re-enter password: "; read -r -s password_recheck_var; echo
         if [ "$password_var" = "$password_recheck_var" ]; then
             eval "$2='$password_var'"
             break
         else
-            echo "Passwords do not match. Please enter a new password."
+            echo "Passwords do not match. Please try again."
         fi
     done
 }
 
-echo -ne "\n\nEnter the username: "; read -r USER
+echo -e "\n=== Arch Linux ZFS Installation ==="
+echo -e "This script will ERASE all data on the selected disk!\n"
+
+echo -n "Enter the username: "; read -r USER
+validate_username "$USER"
+
 get_password "Enter the password for user $USER" USERPASS
 get_password "Enter the password for user root" ROOTPASS
 
 echo -n "Enter the hostname: "; read -r HOSTNAME
-
+validate_hostname "$HOSTNAME"
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Cleaning old partition table and partitioning"
+echo -e "# Disk Detection"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
 if lsblk | grep nvme &>/dev/null; then
@@ -63,27 +82,31 @@ elif lsblk | grep sda &>/dev/null; then
     PARTITION_2="2"
     echo "SATA disk detected: $DISK"
 else 
-    echo "ERROR: No NVMe or SATA drive found. Exiting."
-    exit 1
+    error_exit "No NVMe or SATA drive found."
 fi
 
-wipefs -a -f $DISK 
+echo -e "\nDisk information:"
+lsblk $DISK
 
-(
-echo g           # Create a GPT partition table
-echo n           # Create the EFI partition
-echo             # Default, 1
-echo             # Default
-echo +1G         # 1GB for the EFI partition
-echo t           # Change partition type to EFI
-echo 1           # EFI type
-echo n           # Create the system partition
-echo             # Default, 2
-echo             # Default
-echo             # Default, use the rest of the space
-echo w           # Write the partition table
-) | fdisk $DISK
+echo -e "\n⚠️  WARNING: All data on $DISK will be DESTROYED!"
+echo -n "Type 'YES' to continue: "; read -r CONFIRM
+if [ "$CONFIRM" != "YES" ]; then
+    echo "Installation cancelled."
+    exit 0
+fi
 
+echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
+echo -e "# Partitioning $DISK"
+echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+
+wipefs -a -f $DISK || error_exit "Failed to wipe disk"
+
+parted $DISK --script mklabel gpt || error_exit "Failed to create GPT table"
+parted $DISK --script mkpart ESP fat32 1MiB 1GiB || error_exit "Failed to create EFI partition"
+parted $DISK --script set 1 esp on || error_exit "Failed to set ESP flag"
+parted $DISK --script mkpart primary 1GiB 100% || error_exit "Failed to create root partition"
+
+sleep 2  # Wait for kernel to recognize partitions
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Format and mount partitions"
@@ -131,7 +154,18 @@ echo -e "\n\n# -----------------------------------------------------------------
 echo -e "# Chroot into the system and configure"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-env DISK=$DISK arch-chroot /mnt <<EOF
+arch-chroot /mnt \
+    /usr/bin/env DISK="$DISK" USER="$USER" USERPASS="$USERPASS" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
+    /bin/bash --noprofile --norc -euo pipefail <<'EOF'
+
+error_exit() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
+
+# Safety: ensure we don't echo each input line (bash verbose mode)
+set +o verbose || true
+set +o xtrace || true
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -140,6 +174,7 @@ env DISK=$DISK arch-chroot /mnt <<EOF
 
 reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 systemctl enable NetworkManager
+systemctl mask NetworkManager-wait-online.service
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
@@ -226,15 +261,34 @@ echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.loc
 # Install utilities and Enable services
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm net-tools flatpak git man vi nano lite-xl distrobox podman
+pacman -S --noconfirm net-tools flatpak git man nano
 
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Install GNOME desktop environment
+# Install KDE desktop environment
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm gnome gdm
-systemctl enable gdm.service
+pacman -S --noconfirm plasma-meta kde-applications-meta sddm
+systemctl enable sddm.service
+
+# Configure SDDM with Breeze theme and Wayland
+mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
+
+
+bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOF
+[Theme]
+Current=breeze
+CursorTheme=breeze_cursors
+
+[General]
+Numlock=on
+DisplayServer=wayland
+GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+
+[Wayland]
+SessionDir=/usr/share/wayland-sessions
+CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
+EOF'
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -248,14 +302,15 @@ pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
 # Install NVIDIA drivers
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl
+pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Create user and set passwords
 # --------------------------------------------------------------------------------------------------------------------------
 
-useradd -m $USER
+useradd -m -G wheel,audio,video,storage -s /bin/bash "$USER"
+
 echo "$USER:$USERPASS" | chpasswd
 echo "root:$ROOTPASS" | chpasswd
 
@@ -264,7 +319,11 @@ echo "root:$ROOTPASS" | chpasswd
 # Configure sudoers file
 # --------------------------------------------------------------------------------------------------------------------------
 
-echo -e "\n\n%$USER ALL=(ALL:ALL) ALL" | tee -a /etc/sudoers
+# Configure sudo using visudo-safe method
+echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
+chmod 0440 /etc/sudoers.d/wheel
+
+echo "Configuration completed successfully!"
 
 
 EOF

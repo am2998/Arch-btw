@@ -1,21 +1,7 @@
 #!/bin/bash
 
-# LUKS + LVM + BTRFS + SYSTEMD-BOOT
-# KDE
-
-cat <<'EOF'
- ______                                             ______                       __              _______   ________  __       __ 
-/      |                                           /      \                     /  |            /       \ /        |/  |  _  /  |
-$$$$$$/        __    __   _______   ______        /$$$$$$  |  ______    _______ $$ |____        $$$$$$$  |$$$$$$$$/ $$ | / \ $$ |
-  $$ |        /  |  /  | /       | /      \       $$ |__$$ | /      \  /       |$$      \       $$ |__$$ |   $$ |   $$ |/$  \$$ |
-  $$ |        $$ |  $$ |/$$$$$$$/ /$$$$$$  |      $$    $$ |/$$$$$$  |/$$$$$$$/ $$$$$$$  |      $$    $$<    $$ |   $$ /$$$  $$ |
-  $$ |        $$ |  $$ |$$      \ $$    $$ |      $$$$$$$$ |$$ |  $$/ $$ |      $$ |  $$ |      $$$$$$$  |   $$ |   $$ $$/$$ $$ |
- _$$ |_       $$ \__$$ | $$$$$$  |$$$$$$$$/       $$ |  $$ |$$ |      $$ \_____ $$ |  $$ |      $$ |__$$ |   $$ |   $$$$/  $$$$ |
-/ $$   |      $$    $$/ /     $$/ $$       |      $$ |  $$ |$$ |      $$       |$$ |  $$ |      $$    $$/    $$ |   $$$/    $$$ |
-$$$$$$/        $$$$$$/  $$$$$$$/   $$$$$$$/       $$/   $$/ $$/        $$$$$$$/ $$/   $$/       $$$$$$$/     $$/    $$/      $$/ 
-                                                                                                                                 
-EOF
-
+# EXT4 + EFISTUB 
+# Hyprland
 
 exec > >(tee -a result.log) 2>&1
 
@@ -44,25 +30,7 @@ get_password() {
 echo -ne "\n\nEnter the username: "; read -r USER
 get_password "Enter the password for user $USER" USERPASS
 get_password "Enter the password for user root" ROOTPASS
-get_password "Enter LUKS volume password" PASSPHRASE
 echo -n "Enter the hostname: "; read -r HOSTNAME
-
-
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Check if there are existing PV and VG"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
-
-umount -R /mnt 2>/dev/null
-VG_NAME=$(vgdisplay -c | cut -d: -f1 | xargs)
-
-if [ -z "$VG_NAME" ]; then
-    echo -e "No volume group found. Skipping VG removal."
-else
-    echo -e "Removing volume group ${VG_NAME} and all associated volumes..."
-    yes | vgremove "$VG_NAME" 2>/dev/null
-    PV_NAME=$(pvs --noheadings -o pv_name | grep -w "$VG_NAME" | xargs)
-    yes | pvremove "$PV_NAME" 2>/dev/null
-fi
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
@@ -102,46 +70,14 @@ echo w           # Write the partition table
 ) | fdisk $DISK
 
 
-
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Create LUKS and LVM for the system partition"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
-
-echo "$PASSPHRASE" | cryptsetup luksFormat ${DISK}${PARTITION_2} \
-  --type luks2 \
-  --hash sha512 \
-  --pbkdf argon2id \
-  --iter-time 5000 \
-  --cipher aes-xts-plain64 \
-  --key-size 256 \
-  --sector-size 512 \
-  --use-urandom
-
-echo "$PASSPHRASE" | cryptsetup open ${DISK}${PARTITION_2} cryptroot
-
-pvcreate --dataalignment 1m /dev/mapper/cryptroot
-vgcreate sys /dev/mapper/cryptroot
-yes | lvcreate -l 100%FREE -n root sys
-
-
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Format and mount partitions"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-mkfs.fat -F32 ${DISK}${PARTITION_1}   
-mkfs.btrfs /dev/mapper/sys-root   
+mkfs.ext4 ${DISK}${PARTITION_2}
+mount ${DISK}${PARTITION_2} /mnt
 
-mount /dev/mapper/sys-root /mnt
-btrfs subvolume create /mnt/@
-btrfs subvolume create /mnt/@home
-btrfs subvolume create /mnt/@var
-umount /mnt
-
-mount -o noatime,ssd,compress=zstd,space_cache=v2,subvol=@ /dev/mapper/sys-root /mnt
-mkdir -p /mnt/{home,var}
-mount -o noatime,ssd,compress=zstd,space_cache=v2,subvol=@home /dev/mapper/sys-root /mnt/home
-mount -o noatime,ssd,compress=zstd,space_cache=v2,subvol=@var /dev/mapper/sys-root /mnt/var
-
+mkfs.fat -F32 ${DISK}${PARTITION_1}  
 mkdir -p /mnt/boot && mount ${DISK}${PARTITION_1} /mnt/boot
 
 
@@ -149,56 +85,25 @@ echo -e "\n\n# -----------------------------------------------------------------
 echo -e "# Install base system"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-pacstrap /mnt linux base base-devel linux-firmware lvm2 btrfs-progs zram-generator reflector sudo networkmanager amd-ucode
+pacstrap /mnt linux-zen linux-zen-headers booster base base-devel linux-firmware zram-generator reflector sudo networkmanager intel-ucode efibootmgr
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Generate fstab file"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-genfstab -U /mnt >> /mnt/etc/fstab
+genfstab -U /mnt > /mnt/etc/fstab
+echo -e "\nFstab file generated:\n"
+cat /mnt/etc/fstab
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Chroot into the system and configure"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-arch-chroot /mnt <<EOF
+env DISK=$DISK arch-chroot /mnt <<EOF
 
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Basic settings
-# --------------------------------------------------------------------------------------------------------------------------
-
-echo "$HOSTNAME" > /etc/hostname
-
-localectl set-keymap --no-convert us
-
-ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
-
-hwclock --systohc
-
-timedatectl set-ntp true
-
-sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
-
-echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Create user and set passwords
-# --------------------------------------------------------------------------------------------------------------------------
-
-useradd -m $USER
-echo "$USER:$USERPASS" | chpasswd
-echo "root:$ROOTPASS" | chpasswd
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure sudoers file
-# --------------------------------------------------------------------------------------------------------------------------
-
-echo -e "\n\n%$USER ALL=(ALL:ALL) ALL" | tee -a /etc/sudoers
+echo -e "in chroot...\n\n"
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -206,6 +111,7 @@ echo -e "\n\n%$USER ALL=(ALL:ALL) ALL" | tee -a /etc/sudoers
 # --------------------------------------------------------------------------------------------------------------------------
 
 reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
+cat /etc/pacman.d/mirrorlist
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -234,39 +140,18 @@ echo "vm.page-cluster = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
 sysctl --system
 
 
-# -----------------------------------------------a---------------------------------------------------------------------------
-# Install systemd-boot
+# --------------------------------------------------------------------------------------------------------------------------
+# EFI Stub with Booster
 # --------------------------------------------------------------------------------------------------------------------------
 
-bootctl --path=/boot install
-
-touch /boot/loader/entries/arch.conf
-
-echo "title Arch Linux" > /boot/loader/entries/arch.conf
-echo "linux vmlinuz-linux" >> /boot/loader/entries/arch.conf
-echo "initrd amd-ucode.img" >> /boot/loader/entries/arch.conf
-echo "initrd initramfs-linux.img" >> /boot/loader/entries/arch.conf
-echo "options cryptdevice=UUID=$(blkid -s UUID -o value ${DISK}${PARTITION_2}):cryptroot root=/dev/mapper/sys-root rootfstype=btrfs rootflags=subvol=@ rw quiet splash" >> /boot/loader/entries/arch.conf
-
-touch /boot/loader/loader.conf
-
-echo -e "default arch\ntimeout 4\nconsole-mode max\neditor no" > /boot/loader/loader.conf
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure mkinitcpio
-# --------------------------------------------------------------------------------------------------------------------------
-
-sed -i 's/\(filesystems\) \(fsck\)/\1 encrypt lvm2 \2/' /etc/mkinitcpio.conf
-
-mkinitcpio -p linux
+efibootmgr --create --disk $DISK --part 1 --label "Arch Linux" --loader /vmlinuz-linux-zen --unicode "root=UUID=$(blkid -s UUID -o value /dev/sda2) rw initrd=\intel-ucode.img initrd=\booster-linux-zen.img"
 
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Install utilities and applications
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm net-tools flatpak firefox konsole dolphin okular kate git man nano vi lite-xl distrobox veracrypt rclone cronie
+pacman -S --noconfirm flatpak firefox man nano git
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -280,28 +165,83 @@ pacman -S --noconfirm pipewire wireplumber pipewire-pulse alsa-plugins alsa-firm
 # Install NVIDIA drivers
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm nvidia-open nvidia-settings nvidia-utils opencl-nvidia libxnvctrl
+pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl
 
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Install Plasma and SDDM
+# Install Hyprland + ML4W dotfiles
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm plasma
+pacman -S --noconfirm hyprland egl-wayland
+find /usr/share/wayland-sessions -type f -not -name "hyprland.desktop" -delete
 
-pacman -Syu --noconfirm sddm 
-sed -i 's/^Current=.*$/Current=breeze/' /usr/lib/sddm/sddm.conf.d/default.conf
-sed -i '/^\[X11\]/,/\[.*\]/s/^SessionDir=.*$/SessionDir=/' /usr/lib/sddm/sddm.conf.d/default.conf
+mkdir -p /etc/systemd/system/getty@tty1.service.d 
 
-systemctl enable sddm
+echo -e "
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -o '-p -f -- \\u' --noclear --autologin $USER %I $TERM" >> /etc/systemd/system/getty@tty1.service.d/autologin.conf
+
+echo -e "[[ '$(tty)' == /dev/tty1 ]] && Hyprland > /dev/null" > /home/$USER/.bash_profile
+
+groupadd -r autologin
+
+wget https://raw.githubusercontent.com/mylinuxforwork/dotfiles/main/setup-arch.sh /home/$USER
 
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Enable services
+# System setup
+# --------------------------------------------------------------------------------------------------------------------------
+
+echo "$HOSTNAME" > /etc/hostname
+
+localectl set-keymap --no-convert us
+
+ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
+
+hwclock --systohc
+
+timedatectl set-ntp true
+
+sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
+
+echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Create user and set passwords
+# --------------------------------------------------------------------------------------------------------------------------
+
+useradd -m $USER
+echo "$USER:$USERPASS" | chpasswd
+gpasswd -a $USER autologin
+
+echo "root:$ROOTPASS" | chpasswd
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Configure sudoers file
+# --------------------------------------------------------------------------------------------------------------------------
+
+echo -e "\n\n$USER ALL=(ALL:ALL) NOPASSWD: ALL" | tee -a /etc/sudoers
+echo -e "\nSudoers file configured"
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Install Yay
+# --------------------------------------------------------------------------------------------------------------------------
+
+su -c "cd /tmp && git clone https://aur.archlinux.org/yay.git && cd yay && echo $USERPASS | makepkg -si --noconfirm" $USER
+echo "Yay installation completed"
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Manage services
 # --------------------------------------------------------------------------------------------------------------------------
 
 systemctl enable NetworkManager
-systemctl enable cronie
+systemctl mask ldconfig.service
+systemctl mask geoclue
 
 
 EOF
