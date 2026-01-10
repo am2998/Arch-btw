@@ -301,20 +301,11 @@ systemctl enable sddm.service
 mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
 
 
-bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOFSDDM
+bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOF
 [Theme]
 Current=breeze
 CursorTheme=breeze_cursors
-
-[General]
-Numlock=on
-DisplayServer=wayland
-GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
-
-[Wayland]
-SessionDir=/usr/share/wayland-sessions
-CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
-EOFSDDM'
+EOF'
 
 
 print_header "Install audio components"
@@ -329,7 +320,7 @@ pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia
 
 print_header "Create user and set passwords"
 
-useradd -m -G wheel,audio,video,storage -s /bin/bash "$USER"
+useradd -m -G wheel -s /bin/bash "$USER"
 
 echo "$USER:$USERPASS" | chpasswd
 echo "root:$ROOTPASS" | chpasswd
