@@ -22,16 +22,6 @@ error_exit() {
     exit 1
 }
 
-validate_username() {
-    local username=$1
-    if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-        error_exit "Invalid username. Use only lowercase letters, numbers, underscore and hyphen."
-    fi
-    if [ ${#username} -gt 32 ]; then
-        error_exit "Username too long (max 32 characters)."
-    fi
-}
-
 validate_hostname() {
     local hostname=$1
     if [[ ! "$hostname" =~ ^[a-z0-9-]+$ ]]; then
@@ -66,21 +56,17 @@ get_password() {
 echo -e "\n=== Arch Linux ZFS Installation ==="
 echo -e "This script will ERASE all data on the selected disk!\n"
 
-echo -n "Enter the username: "; read -r USER
-validate_username "$USER"
-
-get_password "Enter the password for user $USER" USERPASS
-get_password "Enter the password for user root" ROOTPASS
+get_password "Enter the password for root user" ROOTPASS
 
 echo -n "Enter the hostname: "; read -r HOSTNAME
 validate_hostname "$HOSTNAME"
 
 print_header "Disk Detection"
 
-if lsblk | grep nvme &>/dev/null; then
-    DISK="/dev/nvme0n1"
-    PARTITION_1="p1"
-    PARTITION_2="p2"
+if lsblk | grep sda &>/dev/null; then
+    DISK="/dev/sda"
+    PARTITION_1="1"
+    PARTITION_2="2"
     echo "NVMe disk detected: $DISK"
 else 
     error_exit "No NVMe drive found."
@@ -111,6 +97,8 @@ parted $DISK --script mkpart ESP fat32 1MiB 1GiB || error_exit "Failed to create
 parted $DISK --script set 1 esp on || error_exit "Failed to set ESP flag"
 parted $DISK --script mkpart primary 1GiB 100% || error_exit "Failed to create root partition"
 
+echo "Partitions created successfully."
+
 sleep 2  # Wait for kernel to recognize partitions
 
 print_header "Format and mount partitions"
@@ -127,10 +115,10 @@ echo "ZFS pool created successfully."
 # - zroot/ROOT is a container
 # - zroot/ROOT/default is the boot environment mounted at /
 # - separate datasets for /home and /var improve manageability and snapshots
-zfs create -o canmount=off -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT container"
-zfs create -o canmount=noauto -o mountpoint=/ zroot/ROOT/default || error_exit "Failed to create zroot/ROOT/default"
-zfs create -o mountpoint=/home zroot/home || error_exit "Failed to create /home dataset"
-zfs create -o canmount=off -o mountpoint=/var zroot/var || error_exit "Failed to create /var dataset"
+zfs create -o mountpoint=none zroot/data || error_exit "Failed to create zroot/data container"
+zfs create -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT container"
+zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/default || error_exit "Failed to create zroot/ROOT/default"
+zfs create -o mountpoint=/home zroot/data/home || error_exit "Failed to create /home dataset"
 
 zpool set bootfs=zroot/ROOT/default zroot || error_exit "Failed to set bootfs property"
 echo "bootfs property set successfully."
@@ -175,7 +163,7 @@ echo "Entering chroot to configure the system..."
 declare -f print_header > /mnt/root/.arch-install-helpers.sh
 
 arch-chroot /mnt \
-    /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" USER="$USER" USERPASS="$USERPASS" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
+    /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
     /bin/bash --noprofile --norc -euo pipefail <<'EOF'
 
 source /root/.arch-install-helpers.sh
@@ -236,12 +224,12 @@ efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --verbose >/dev/null
 
 # Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid) nvidia_drm.modeset=1" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
+zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid)" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
 
 print_header "Configure mkinitcpio"
 
 # Configure mkinitcpio with ZFS hooks
-sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block keyboard zfs filesystems fsck)/' /etc/mkinitcpio.conf
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block zfs filesystems)/' /etc/mkinitcpio.conf
 
 mkinitcpio -p linux-lts
 
@@ -289,10 +277,7 @@ pacman -S --noconfirm net-tools flatpak git man nano
 
 print_header "Install KDE desktop environment"
 
-pacman -S --noconfirm \
-    plasma-meta \
-    kde-applications-meta \
-    sddm
+pacman -S --noconfirm plasma-desktop sddm dolphin konsole okular
 systemctl enable sddm.service
 
 # Configure SDDM with Breeze theme and Wayland
@@ -305,20 +290,6 @@ Current=breeze
 CursorTheme=breeze_cursors
 EOF'
 
-# Prefer Wayland and default to the Plasma Wayland session.
-bash -c 'cat > /etc/sddm.conf.d/10-wayland.conf <<EOF
-[General]
-DisplayServer=wayland
-DefaultSession=plasmawayland.desktop
-
-[Wayland]
-CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts
-EOF'
-
-# If NVIDIA drivers are installed, enable DRM modeset for better Wayland support.
-mkdir -p /etc/modprobe.d
-echo "options nvidia_drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
-
 
 # print_header "Install audio components"
 
@@ -330,26 +301,11 @@ echo "options nvidia_drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
 # pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
-print_header "Create user and set passwords"
+print_header "Set root user password"
 
-mkdir -p /home
-zfs mount zroot/home >/dev/null 2>&1 || true
-
-# Create the user with an explicit home path.
-useradd -m -d "/home/$USER" -G wheel -s /bin/bash "$USER"
-
-install -d -m 700 -o "$USER" -g "$USER" "/home/$USER"
-
-# Populate default dotfiles (helps display manager sessions start cleanly).
-if [ ! -e "/home/$USER/.bashrc" ]; then
-    cp -rT /etc/skel "/home/$USER"
-    chown -R "$USER:$USER" "/home/$USER"
-fi
-
-echo "$USER:$USERPASS" | chpasswd
 echo "root:$ROOTPASS" | chpasswd
 
-echo "User $USER created and passwords set."
+echo "Root password set."
 
 
 print_header "Configure sudoers file"
