@@ -1,27 +1,27 @@
 # Pacman hook: ZFS snapshots
 
-Questi file creano uno snapshot ZFS *prima* di ogni transazione `pacman` che installa o aggiorna pacchetti.
+These files create a ZFS snapshot *before* every `pacman` transaction that installs or upgrades packages.
 
-## Cosa fa
+## What it does
 
-- Hook pacman (PreTransaction) su `Install` e `Upgrade`
-- Script che crea snapshot best-effort (non blocca `pacman` se lo snapshot fallisce)
-- Snapshot su:
-  - dataset montato su `/`
-  - dataset montato su `/home` (se ZFS)
-  - dataset montato su `/var` (se ZFS)
+- Pacman hook (PreTransaction) for `Install` and `Upgrade`
+- Best-effort snapshot script (it will not block `pacman` if snapshot creation fails)
+- Snapshots of:
+  - dataset mounted at `/`
+  - dataset mounted at `/home` (if it is ZFS)
+  - dataset mounted at `/var` (if it is ZFS)
 
-## Installazione (manuale)
+## Installation (manual)
 
-- Copia il file hook in `/etc/pacman.d/hooks/`
-- Copia lo script in `/usr/local/sbin/zfs-pacman-snapshot` e rendilo eseguibile
+- Copy the hook file to `/etc/pacman.d/hooks/`
+- Copy the script to `/usr/local/sbin/zfs-pacman-snapshot` and make it executable
 
-## Disabilitazione temporanea
+## Temporary disable
 
-- Se esiste il file `/etc/zfs-pacman-snapshot.disable`, lo script non fa nulla.
+- If the file `/etc/zfs-pacman-snapshot.disable` exists, the script does nothing.
 
-## Nome snapshot
+## Snapshot name
 
 Formato (UTC): `pacman-<pre|post>-uYYYYmmddTHHMMSSZ-<hash>`
 
-L'hash deriva dalla lista target che pacman passa al hook (quando disponibile).
+The hash is derived from the targets list that pacman passes to the hook (when available).
