@@ -277,7 +277,7 @@ pacman -S --noconfirm net-tools flatpak git man nano
 
 print_header "Install KDE desktop environment"
 
-pacman -S --noconfirm plasma-desktop sddm dolphin konsole okular plasma-nm kscreen
+pacman -S --noconfirm plasma-desktop sddm dolphin konsole okular plasma-nm kscreen ark spectacle
 systemctl enable sddm.service
 
 # Configure SDDM with Breeze theme and Wayland
