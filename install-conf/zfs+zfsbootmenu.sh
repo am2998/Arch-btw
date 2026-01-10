@@ -291,14 +291,14 @@ CursorTheme=breeze_cursors
 EOF'
 
 
-# print_header "Install audio components"
+print_header "Install audio components"
 
-# pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
 
 
-# print_header "Install NVIDIA drivers"
+print_header "Install NVIDIA drivers"
 
-# pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
 print_header "Set root user password"
