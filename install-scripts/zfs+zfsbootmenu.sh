@@ -341,9 +341,6 @@ rm -f /mnt/root/.arch-install-helpers.sh
 
 print_header "Unmount and prepare for reboot"
 
-echo "Syncing filesystems..."
-sync
-
 echo "Unmounting filesystems..."
 umount -R /mnt || true
 zfs umount -a || true
