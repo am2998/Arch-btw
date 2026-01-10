@@ -82,13 +82,8 @@ if lsblk | grep nvme &>/dev/null; then
     PARTITION_1="p1"
     PARTITION_2="p2"
     echo "NVMe disk detected: $DISK"
-elif lsblk | grep sda &>/dev/null; then
-    DISK="/dev/sda"
-    PARTITION_1="1"
-    PARTITION_2="2"
-    echo "SATA disk detected: $DISK"
 else 
-    error_exit "No NVMe or SATA drive found."
+    error_exit "No NVMe drive found."
 fi
 
 echo -e "\nDisk information:"
@@ -168,7 +163,7 @@ echo "Entering chroot to configure the system..."
 declare -f print_header > /mnt/root/.arch-install-helpers.sh
 
 arch-chroot /mnt \
-    /usr/bin/env DISK="$DISK" USER="$USER" USERPASS="$USERPASS" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
+    /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" USER="$USER" USERPASS="$USERPASS" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
     /bin/bash --noprofile --norc -euo pipefail <<'EOF'
 
 source /root/.arch-install-helpers.sh
@@ -213,11 +208,35 @@ systemctl enable zfs.target zfs-import-cache zfs-mount zfs-import.target
 
 print_header "Install ZFSBootMenu"
 
-
 mkdir -p /efi/EFI/zbm
-wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI
-efibootmgr --disk $DISK --part 1 --create --label "ZFSBootMenu" --loader '\EFI\zbm\zfsbootmenu.EFI' --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" --verbose
+wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI || error_exit "Failed to download ZFSBootMenu"
+
+# Remove any existing ZFSBootMenu entries to avoid duplicates
+for bootnum in $(efibootmgr | grep "ZFSBootMenu" | cut -d' ' -f1 | tr -d 'Boot*'); do
+    efibootmgr -b "$bootnum" -B
+done
+
+# Create the boot entry
+BOOT_ENTRY=$(efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
+    --loader '\EFI\zbm\zfsbootmenu.EFI' \
+    --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
+    --verbose | grep -oP 'Boot\K[0-9A-F]{4}' | head -1)
+
+if [ -z "$BOOT_ENTRY" ]; then
+    error_exit "Failed to create boot entry"
+fi
+
+echo "Boot entry created: Boot$BOOT_ENTRY"
+
+# Set ZFSBootMenu as the first boot option
+efibootmgr --bootorder "$BOOT_ENTRY",$(efibootmgr | grep '^Boot[0-9]' | grep -v "Boot$BOOT_ENTRY" | cut -d' ' -f1 | tr -d 'Boot*' | tr '\n' ',' | sed 's/,$//')
+
+# Set ZFS properties for boot
 zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT
+
+# Verify boot entry
+echo "Current boot order:"
+efibootmgr
 
 
 print_header "Configure mkinitcpio"
@@ -232,11 +251,11 @@ mkinitcpio -p linux-lts
 
 print_header "Configure ZRAM"
 
-bash -c 'cat > /etc/systemd/zram-generator.conf <<EOF
+bash -c 'cat > /etc/systemd/zram-generator.conf <<EOFZRAM
 [zram0]
 zram-size = min(ram, 32768)
 compression-algorithm = zstd
-EOF'
+EOFZRAM'
 
 echo "vm.swappiness = 180" >> /etc/sysctl.d/99-vm-zram-parameters.conf
 echo "vm.watermark_boost_factor = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
@@ -280,7 +299,7 @@ echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.loc
 # mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
 
 
-# bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOF
+# bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOFSDDM
 # [Theme]
 # Current=breeze
 # CursorTheme=breeze_cursors
@@ -293,7 +312,7 @@ echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.loc
 # [Wayland]
 # SessionDir=/usr/share/wayland-sessions
 # CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
-# EOF'
+# EOFSDDM'
 
 
 # print_header "Install audio components"
@@ -322,20 +341,30 @@ chmod 0440 /etc/sudoers.d/wheel
 
 echo "Configuration completed successfully!"
 
-
 EOF
-
 
 # Cleanup temporary helper copied into the installed system
 rm -f /mnt/root/.arch-install-helpers.sh
 
+print_header "Unmount and prepare for reboot"
 
+echo "Syncing filesystems..."
+sync
 
-print_header "Umount and reboot"
+echo "Unmounting filesystems..."
+umount /mnt/efi || true
+zfs umount -a || true
+zpool export zroot || true
 
-umount -R /mnt
-zfs umount -a
-zpool export -a
+echo ""
+echo "=========================================="
+echo "Installation completed successfully!"
+echo "=========================================="
+echo ""
+echo "IMPORTANT: Before rebooting:"
+echo "1. Remove the installation media"
+echo "2. Press Enter to reboot now, or Ctrl+C to stay in live environment"
+echo ""
+read -p "Press Enter to reboot..."
 
-echo "Rebooting. If the machine boots back into the installer, remove the installation media and/or adjust UEFI boot order to the disk entry 'ZFSBootMenu' (or the fallback EFI path)."
 reboot
