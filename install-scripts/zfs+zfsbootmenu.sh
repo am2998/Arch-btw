@@ -9,6 +9,14 @@ set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 # Helper Functions
 # --------------------------------------------------------------------------------------------------------------------------
 
+print_header() {
+    local title="$1"
+    local line="--------------------------------------------------------------------------------------------------------------------------"
+    echo -e "\n\n# ${line}"
+    echo -e "# ${title}"
+    echo -e "# ${line}\n"
+}
+
 error_exit() {
     echo "ERROR: $1" >&2
     exit 1
@@ -67,9 +75,7 @@ get_password "Enter the password for user root" ROOTPASS
 echo -n "Enter the hostname: "; read -r HOSTNAME
 validate_hostname "$HOSTNAME"
 
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Disk Detection"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Disk Detection"
 
 if lsblk | grep nvme &>/dev/null; then
     DISK="/dev/nvme0n1"
@@ -88,6 +94,12 @@ fi
 echo -e "\nDisk information:"
 lsblk $DISK
 
+print_header "Verify UEFI boot mode (required for efibootmgr / EFI boot entries)"
+
+if [ ! -d /sys/firmware/efi/efivars ]; then
+    error_exit "System is not booted in UEFI mode. Reboot the installer in UEFI mode (not Legacy/CSM) and rerun this script."
+fi
+
 echo -e "\n⚠️  WARNING: All data on $DISK will be DESTROYED!"
 echo -n "Type 'YES' to continue: "; read -r CONFIRM
 if [ "$CONFIRM" != "YES" ]; then
@@ -95,9 +107,7 @@ if [ "$CONFIRM" != "YES" ]; then
     exit 0
 fi
 
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Partitioning $DISK"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Partitioning $DISK"
 
 wipefs -a -f $DISK || error_exit "Failed to wipe disk"
 
@@ -108,9 +118,7 @@ parted $DISK --script mkpart primary 1GiB 100% || error_exit "Failed to create r
 
 sleep 2  # Wait for kernel to recognize partitions
 
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Format and mount partitions"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Format and mount partitions"
 
 zpool create \
     -o ashift=12 \
@@ -121,22 +129,16 @@ zpool create \
 echo "ZFS pool created successfully."
 
 # Dataset layout (best-practice style)
-# - zroot/ROOT/default is the bootable root dataset
+# - zroot/ROOT is the bootable root dataset
 # - separate datasets for /home and /var improve manageability and snapshots
-zfs create -o canmount=off -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT"
-zfs create -o canmount=noauto -o mountpoint=/ zroot/ROOT/default || error_exit "Failed to create root dataset"
-
+zfs create -o canmount=noauto -o mountpoint=/ zroot/ROOT || error_exit "Failed to create zroot/ROOT"
 zfs create -o mountpoint=/home zroot/home || error_exit "Failed to create /home dataset"
-zfs create -o mountpoint=/root zroot/root || error_exit "Failed to create /root dataset"
-
 zfs create -o canmount=off -o mountpoint=/var zroot/var || error_exit "Failed to create /var dataset"
 
-zfs create -o mountpoint=/tmp -o setuid=off -o devices=off zroot/tmp || error_exit "Failed to create /tmp dataset"
-
-zpool set bootfs=zroot/ROOT/default zroot || error_exit "Failed to set bootfs property"
+zpool set bootfs=zroot/ROOT zroot || error_exit "Failed to set bootfs property"
 echo "bootfs property set successfully."
 
-zfs mount zroot/ROOT/default || error_exit "Failed to mount root dataset"
+zfs mount zroot/ROOT || error_exit "Failed to mount root dataset"
 zfs mount -a || error_exit "Failed to mount ZFS datasets"
 
 mkdir -p /mnt/etc/zfs || error_exit "Failed to create /mnt/etc/zfs"
@@ -148,28 +150,28 @@ mkdir -p /mnt/efi || error_exit "Failed to create /mnt/efi"
 mount ${DISK}${PARTITION_1} /mnt/efi || error_exit "Failed to mount EFI partition"
 
 
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Install base system"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Install base system"
 
 pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
 
 
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Generate fstab file"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Generate fstab file"
 
 genfstab -U /mnt >> /mnt/etc/fstab || error_exit "Failed to generate fstab"
 echo "fstab generated successfully."
 
-echo -e"\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Chroot into the system and configure"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Chroot into the system and configure"
 
 echo "Entering chroot to configure the system..."
+
+# Make header helper available inside chroot
+declare -f print_header > /mnt/root/.arch-install-helpers.sh
+
 arch-chroot /mnt \
     /usr/bin/env DISK="$DISK" USER="$USER" USERPASS="$USERPASS" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
     /bin/bash --noprofile --norc -euo pipefail <<'EOF'
+
+source /root/.arch-install-helpers.sh
 
 error_exit() {
     echo "ERROR: $1" >&2
@@ -181,27 +183,21 @@ set +o verbose || true
 set +o xtrace || true
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure mirrors and Enable Network Manager service
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Configure mirrors and Enable Network Manager service"
 
 reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 systemctl enable NetworkManager
 systemctl mask NetworkManager-wait-online.service
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure locale
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Configure locale"
 
 localectl set-keymap us
 echo "KEYMAP=us" > /etc/vconsole.conf
 echo "Locale and keymap configured."
 
 
-echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
-echo -e "# Setup ZFS"
-echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
+print_header "Setup ZFS"
 
 echo -e '
 [archzfs]
@@ -215,28 +211,26 @@ pacman -Sy --noconfirm zfs-dkms
 systemctl enable zfs.target zfs-import-cache zfs-mount zfs-import.target
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Install ZFSBootMenu
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Install ZFSBootMenu"
+
 
 mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI
 efibootmgr --disk $DISK --part 1 --create --label "ZFSBootMenu" --loader '\EFI\zbm\zfsbootmenu.EFI' --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" --verbose
-zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT/default
+zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure mkinitcpio
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Configure mkinitcpio"
 
-sed -i 's/\(filesystems\) \(fsck\)/\1 zfs \2/' /etc/mkinitcpio.conf
+# Ensure ZFS hook is present (for ZFS root). Prefer placing it before filesystems.
+if ! grep -qE '^HOOKS=.*\<zfs\>' /etc/mkinitcpio.conf; then
+    sed -i '/^HOOKS=/ s/\<filesystems\>/zfs filesystems/' /etc/mkinitcpio.conf
+fi
 
 mkinitcpio -p linux-lts
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure ZRAM
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Configure ZRAM"
 
 bash -c 'cat > /etc/systemd/zram-generator.conf <<EOF
 [zram0]
@@ -252,17 +246,13 @@ echo "vm.page-cluster = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
 sysctl --system
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Enable Multilib repository
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Enable Multilib repository"
 
 sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
 pacman -Syy
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# System config
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "System config"
 
 echo "$HOSTNAME" > /etc/hostname
 
@@ -277,16 +267,11 @@ sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
 echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
 
 
-# # --------------------------------------------------------------------------------------------------------------------------
-# # Install utilities and Enable services
-# # --------------------------------------------------------------------------------------------------------------------------
-
+# print_header "Install utilities and Enable services"
 # pacman -S --noconfirm net-tools flatpak git man nano
 
 
-# # --------------------------------------------------------------------------------------------------------------------------
-# # Install KDE desktop environment
-# # --------------------------------------------------------------------------------------------------------------------------
+# print_header "Install KDE desktop environment"
 
 # pacman -S --noconfirm plasma-meta kde-applications-meta sddm
 # systemctl enable sddm.service
@@ -311,23 +296,17 @@ echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.loc
 # EOF'
 
 
-# # --------------------------------------------------------------------------------------------------------------------------
-# # Install audio components
-# # --------------------------------------------------------------------------------------------------------------------------
+# print_header "Install audio components"
 
 # pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
 
 
-# # --------------------------------------------------------------------------------------------------------------------------
-# # Install NVIDIA drivers
-# # --------------------------------------------------------------------------------------------------------------------------
+# print_header "Install NVIDIA drivers"
 
 # pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Create user and set passwords
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Create user and set passwords"
 
 useradd -m -G wheel,audio,video,storage -s /bin/bash "$USER"
 
@@ -335,9 +314,7 @@ echo "$USER:$USERPASS" | chpasswd
 echo "root:$ROOTPASS" | chpasswd
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure sudoers file
-# --------------------------------------------------------------------------------------------------------------------------
+print_header "Configure sudoers file"
 
 # Configure sudo using visudo-safe method
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
@@ -349,11 +326,16 @@ echo "Configuration completed successfully!"
 EOF
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-# Umount and reboot
-# --------------------------------------------------------------------------------------------------------------------------
+# Cleanup temporary helper copied into the installed system
+rm -f /mnt/root/.arch-install-helpers.sh
+
+
+
+print_header "Umount and reboot"
 
 umount -R /mnt
 zfs umount -a
 zpool export -a
+
+echo "Rebooting. If the machine boots back into the installer, remove the installation media and/or adjust UEFI boot order to the disk entry 'ZFSBootMenu' (or the fallback EFI path)."
 reboot
