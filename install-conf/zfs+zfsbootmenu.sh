@@ -63,10 +63,10 @@ validate_hostname "$HOSTNAME"
 
 print_header "Disk Detection"
 
-if lsblk | grep sda &>/dev/null; then
-    DISK="/dev/sda"
-    PARTITION_1="1"
-    PARTITION_2="2"
+if lsblk | grep nvme &>/dev/null; then
+    DISK="/dev/nvme0n1"
+    PARTITION_1="p1"
+    PARTITION_2="p2"
     echo "NVMe disk detected: $DISK"
 else 
     error_exit "No NVMe drive found."
