@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = *
+
+[Action]
+Description = Create ZFS snapshot (pre-transaction)
+When = PreTransaction
+Exec = /usr/local/sbin/zfs-pacman-snapshot pre
+NeedsTargets
