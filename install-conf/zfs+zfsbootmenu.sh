@@ -149,12 +149,22 @@ mount ${DISK}${PARTITION_1} /mnt/efi || error_exit "Failed to mount EFI partitio
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget nano || error_exit "Failed to install base system (pacstrap)"
 
 
 print_header "Generate fstab file"
 
-genfstab -U /mnt >> /mnt/etc/fstab || error_exit "Failed to generate fstab"
+# Exclude ZFS entries - ZFS handles its own mounting via zfs-mount.service
+genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab || error_exit "Failed to generate fstab"
+
+# Get the actual UUID of the EFI partition
+EFI_UUID=$(blkid -s UUID -o value ${DISK}${PARTITION_1})
+
+# Make EFI partition optional - only needed when updating bootloader
+# noauto = don't mount at boot, nofail = don't fail if unavailable
+# x-systemd.device-timeout=1 = don't wait long for device
+sed -i "/\/efi.*vfat/c\\${EFI_UUID:+UUID=${EFI_UUID}}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
+
 echo "fstab generated successfully."
 
 print_header "Chroot into the system and configure"
@@ -179,7 +189,7 @@ error_exit() {
 set +o verbose || true
 set +o xtrace || true
 
-echo "Inside chroot!"
+echo "Chrooted successfully!"
 
 print_header "Configure mirrors and Enable Network Manager service"
 
@@ -225,28 +235,13 @@ efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
     --verbose >/dev/null
 
-# Determine the created entry by label (safe because we removed duplicates above).
-BOOT_ENTRY=$(efibootmgr | awk -F'[* ]+' '/ZFSBootMenu/ {sub(/^Boot/, "", $1); print $1; exit}')
-
-if [ -z "$BOOT_ENTRY" ]; then
-    error_exit "Failed to create boot entry"
-fi
-
-echo "Boot entry created: Boot$BOOT_ENTRY"
-
-# Set ZFSBootMenu as the first boot option
-OTHER_BOOT_ENTRIES=$(efibootmgr | awk -v boot="$BOOT_ENTRY" '/^Boot[0-9A-F]{4}/ {id=substr($1,5,4); if (id != boot) ids=(ids==""?id:ids","id)} END{print ids}')
-efibootmgr --bootorder "$BOOT_ENTRY${OTHER_BOOT_ENTRIES:+,$OTHER_BOOT_ENTRIES}"
-
 # Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
+zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid) nvidia_drm.modeset=1" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
 
 print_header "Configure mkinitcpio"
 
-# Ensure ZFS hook is present (for ZFS root). Prefer placing it before filesystems.
-if ! grep -qE '^HOOKS=.*\<zfs\>' /etc/mkinitcpio.conf; then
-    sed -i '/^HOOKS=/ s/\<filesystems\>/zfs filesystems/' /etc/mkinitcpio.conf
-fi
+# Configure mkinitcpio with ZFS hooks
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block keyboard zfs filesystems fsck)/' /etc/mkinitcpio.conf
 
 mkinitcpio -p linux-lts
 
@@ -294,7 +289,10 @@ pacman -S --noconfirm net-tools flatpak git man nano
 
 print_header "Install KDE desktop environment"
 
-pacman -S --noconfirm plasma-meta kde-applications-meta sddm
+pacman -S --noconfirm \
+    plasma-meta \
+    kde-applications-meta \
+    sddm
 systemctl enable sddm.service
 
 # Configure SDDM with Breeze theme and Wayland
@@ -307,23 +305,51 @@ Current=breeze
 CursorTheme=breeze_cursors
 EOF'
 
+# Prefer Wayland and default to the Plasma Wayland session.
+bash -c 'cat > /etc/sddm.conf.d/10-wayland.conf <<EOF
+[General]
+DisplayServer=wayland
+DefaultSession=plasmawayland.desktop
 
-print_header "Install audio components"
+[Wayland]
+CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts
+EOF'
 
-pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+# If NVIDIA drivers are installed, enable DRM modeset for better Wayland support.
+mkdir -p /etc/modprobe.d
+echo "options nvidia_drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
 
 
-print_header "Install NVIDIA drivers"
+# print_header "Install audio components"
 
-pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+# pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+
+
+# print_header "Install NVIDIA drivers"
+
+# pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
 print_header "Create user and set passwords"
 
-useradd -m -G wheel -s /bin/bash "$USER"
+mkdir -p /home
+zfs mount zroot/home >/dev/null 2>&1 || true
+
+# Create the user with an explicit home path.
+useradd -m -d "/home/$USER" -G wheel -s /bin/bash "$USER"
+
+install -d -m 700 -o "$USER" -g "$USER" "/home/$USER"
+
+# Populate default dotfiles (helps display manager sessions start cleanly).
+if [ ! -e "/home/$USER/.bashrc" ]; then
+    cp -rT /etc/skel "/home/$USER"
+    chown -R "$USER:$USER" "/home/$USER"
+fi
 
 echo "$USER:$USERPASS" | chpasswd
 echo "root:$ROOTPASS" | chpasswd
+
+echo "User $USER created and passwords set."
 
 
 print_header "Configure sudoers file"
@@ -353,8 +379,16 @@ echo "=========================================="
 echo ""
 echo "IMPORTANT: Before rebooting:"
 echo "1. Remove the installation media"
-echo "2. Press Enter to reboot now, or Ctrl+C to stay in live environment"
+echo "2. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
 echo ""
-read -p "Press Enter to reboot..."
 
-reboot
+# Flush any pending input so accidental earlier keypresses
+# don't get consumed by this final prompt.
+while read -r -t 0; do read -r || true; done
+
+read -r -p "Type REBOOT to reboot: " REBOOT_CONFIRM
+if [ "$REBOOT_CONFIRM" = "REBOOT" ]; then
+    reboot
+else
+    echo "Reboot skipped. You can reboot manually when ready."
+fi
