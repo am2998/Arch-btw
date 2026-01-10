@@ -123,17 +123,19 @@ zpool create \
     -R /mnt zroot ${DISK}${PARTITION_2} -f || error_exit "Failed to create ZFS pool"
 echo "ZFS pool created successfully."
 
-# Dataset layout (best-practice style)
-# - zroot/ROOT is the bootable root dataset
+# Dataset layout
+# - zroot/ROOT is a container
+# - zroot/ROOT/default is the boot environment mounted at /
 # - separate datasets for /home and /var improve manageability and snapshots
-zfs create -o canmount=noauto -o mountpoint=/ zroot/ROOT || error_exit "Failed to create zroot/ROOT"
+zfs create -o canmount=off -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT container"
+zfs create -o canmount=noauto -o mountpoint=/ zroot/ROOT/default || error_exit "Failed to create zroot/ROOT/default"
 zfs create -o mountpoint=/home zroot/home || error_exit "Failed to create /home dataset"
 zfs create -o canmount=off -o mountpoint=/var zroot/var || error_exit "Failed to create /var dataset"
 
-zpool set bootfs=zroot/ROOT zroot || error_exit "Failed to set bootfs property"
+zpool set bootfs=zroot/ROOT/default zroot || error_exit "Failed to set bootfs property"
 echo "bootfs property set successfully."
 
-zfs mount zroot/ROOT || error_exit "Failed to mount root dataset"
+zfs mount zroot/ROOT/default || error_exit "Failed to mount root dataset"
 zfs mount -a || error_exit "Failed to mount ZFS datasets"
 
 mkdir -p /mnt/etc/zfs || error_exit "Failed to create /mnt/etc/zfs"
@@ -177,6 +179,7 @@ error_exit() {
 set +o verbose || true
 set +o xtrace || true
 
+echo "Inside chroot!"
 
 print_header "Configure mirrors and Enable Network Manager service"
 
@@ -212,15 +215,18 @@ mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI || error_exit "Failed to download ZFSBootMenu"
 
 # Remove any existing ZFSBootMenu entries to avoid duplicates
-for bootnum in $(efibootmgr | grep "ZFSBootMenu" | cut -d' ' -f1 | tr -d 'Boot*'); do
+for bootnum in $(efibootmgr | awk -F'[* ]+' '/ZFSBootMenu/ {sub(/^Boot/, "", $1); print $1}'); do
     efibootmgr -b "$bootnum" -B
 done
 
 # Create the boot entry
-BOOT_ENTRY=$(efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
+efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --loader '\EFI\zbm\zfsbootmenu.EFI' \
     --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
-    --verbose | grep -oP 'Boot\K[0-9A-F]{4}' | head -1)
+    --verbose >/dev/null
+
+# Determine the created entry by label (safe because we removed duplicates above).
+BOOT_ENTRY=$(efibootmgr | awk -F'[* ]+' '/ZFSBootMenu/ {sub(/^Boot/, "", $1); print $1; exit}')
 
 if [ -z "$BOOT_ENTRY" ]; then
     error_exit "Failed to create boot entry"
@@ -229,15 +235,11 @@ fi
 echo "Boot entry created: Boot$BOOT_ENTRY"
 
 # Set ZFSBootMenu as the first boot option
-efibootmgr --bootorder "$BOOT_ENTRY",$(efibootmgr | grep '^Boot[0-9]' | grep -v "Boot$BOOT_ENTRY" | cut -d' ' -f1 | tr -d 'Boot*' | tr '\n' ',' | sed 's/,$//')
+OTHER_BOOT_ENTRIES=$(efibootmgr | awk -v boot="$BOOT_ENTRY" '/^Boot[0-9A-F]{4}/ {id=substr($1,5,4); if (id != boot) ids=(ids==""?id:ids","id)} END{print ids}')
+efibootmgr --bootorder "$BOOT_ENTRY${OTHER_BOOT_ENTRIES:+,$OTHER_BOOT_ENTRIES}"
 
 # Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT
-
-# Verify boot entry
-echo "Current boot order:"
-efibootmgr
-
+zfs set org.zfsbootmenu:commandline="noresume init_on_alloc=0 rw spl.spl_hostid=$(hostid)" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
 
 print_header "Configure mkinitcpio"
 
@@ -286,43 +288,43 @@ sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
 echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
 
 
-# print_header "Install utilities and Enable services"
-# pacman -S --noconfirm net-tools flatpak git man nano
+print_header "Install utilities and Enable services"
+pacman -S --noconfirm net-tools flatpak git man nano
 
 
-# print_header "Install KDE desktop environment"
+print_header "Install KDE desktop environment"
 
-# pacman -S --noconfirm plasma-meta kde-applications-meta sddm
-# systemctl enable sddm.service
+pacman -S --noconfirm plasma-meta kde-applications-meta sddm
+systemctl enable sddm.service
 
-# # Configure SDDM with Breeze theme and Wayland
-# mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
-
-
-# bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOFSDDM
-# [Theme]
-# Current=breeze
-# CursorTheme=breeze_cursors
-
-# [General]
-# Numlock=on
-# DisplayServer=wayland
-# GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
-
-# [Wayland]
-# SessionDir=/usr/share/wayland-sessions
-# CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
-# EOFSDDM'
+# Configure SDDM with Breeze theme and Wayland
+mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
 
 
-# print_header "Install audio components"
+bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOFSDDM
+[Theme]
+Current=breeze
+CursorTheme=breeze_cursors
 
-# pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+[General]
+Numlock=on
+DisplayServer=wayland
+GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+
+[Wayland]
+SessionDir=/usr/share/wayland-sessions
+CompositorCommand=kwin_wayland --drm --no-lockscreen --no-global-shortcuts --locale1
+EOFSDDM'
 
 
-# print_header "Install NVIDIA drivers"
+print_header "Install audio components"
 
-# pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+
+
+print_header "Install NVIDIA drivers"
+
+pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
 print_header "Create user and set passwords"
@@ -352,7 +354,7 @@ echo "Syncing filesystems..."
 sync
 
 echo "Unmounting filesystems..."
-umount /mnt/efi || true
+umount -R /mnt || true
 zfs umount -a || true
 zpool export zroot || true
 
