@@ -293,7 +293,7 @@ EOF'
 
 print_header "Install audio components"
 
-pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt
+pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
 
 
 print_header "Install NVIDIA drivers"
