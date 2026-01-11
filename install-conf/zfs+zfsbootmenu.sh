@@ -277,7 +277,7 @@ pacman -S --noconfirm net-tools flatpak git man nano
 
 print_header "Install KDE desktop environment"
 
-pacman -S --noconfirm plasma-desktop sddm dolphin konsole okular plasma-nm kscreen ark spectacle
+pacman -S --needed --noconfirm plasma-desktop sddm dolphin konsole okular plasma-nm kscreen ark spectacle
 systemctl enable sddm.service
 
 # Configure SDDM with Breeze theme and Wayland
@@ -293,12 +293,12 @@ EOF'
 
 print_header "Install audio components"
 
-pacman -S --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
+pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
 
 
 print_header "Install NVIDIA drivers"
 
-pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 
 print_header "Set root user password"
