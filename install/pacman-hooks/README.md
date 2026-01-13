@@ -9,7 +9,6 @@ These files create a ZFS snapshot *before* every `pacman` transaction that insta
 - Snapshots of:
   - dataset mounted at `/`
   - dataset mounted at `/home` (if it is ZFS)
-  - dataset mounted at `/var` (if it is ZFS)
 
 ## Installation (manual)
 
@@ -22,6 +21,6 @@ These files create a ZFS snapshot *before* every `pacman` transaction that insta
 
 ## Snapshot name
 
-Formato (UTC): `pacman-<pre|post>-uYYYYmmddTHHMMSSZ-<hash>`
+Formato (UTC): `pacman-<pre>-uYYYYmmddTHHMMSSZ-<hash>`
 
 The hash is derived from the targets list that pacman passes to the hook (when available).

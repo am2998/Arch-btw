@@ -1,11 +1,9 @@
 #!/bin/bash
 
-# Pacman hook helper: create ZFS snapshots before/after a transaction.
+# Pacman hook helper: create ZFS snapshots before a transaction.
 # Designed to be safe in hooks: it never blocks pacman on snapshot failures.
 
 set -euo pipefail
-
-MODE="${1:-pre}"
 
 DISABLE_SENTINEL="/etc/zfs-pacman-snapshot.disable"
 LOCK_FILE="/run/lock/zfs-pacman-snapshot.lock"
@@ -88,9 +86,8 @@ main() {
         exit 0
     fi
 
-    local home_ds var_ds
+    local home_ds
     home_ds="$(get_zfs_source_for_mount /home)"
-    var_ds="$(get_zfs_source_for_mount /var)"
 
     local targets targets_hash
     targets="$(read_targets || true)"
@@ -103,7 +100,7 @@ main() {
 
     local ts snapname
     ts="$(date -u +%Y%m%dT%H%M%SZ)"
-    snapname="pacman-${MODE}-u${ts}-${targets_hash}"
+    snapname="pacman-${ts}-${targets_hash}"
     snapname="$(printf '%s' "$snapname" | sanitize)"
 
     # Best-effort locking (avoid overlapping hooks).
@@ -112,12 +109,10 @@ main() {
         flock -n "$LOCK_FILE" bash -c "
             snapshot_dataset \"$root_ds\" \"$snapname\";
             snapshot_dataset \"$home_ds\" \"$snapname\";
-            snapshot_dataset \"$var_ds\"  \"$snapname\";
         " || true
     else
         snapshot_dataset "$root_ds" "$snapname"
         snapshot_dataset "$home_ds" "$snapname"
-        snapshot_dataset "$var_ds" "$snapname"
     fi
 
     exit 0
