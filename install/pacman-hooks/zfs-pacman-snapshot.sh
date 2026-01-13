@@ -102,7 +102,7 @@ main() {
     fi
 
     local ts snapname
-    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    ts="$(TZ=Europe/Rome date +%d-%m-%y-%H%M%S)"
     snapname="pacman-${ts}-${targets_hash}"
     snapname="$(printf '%s' "$snapname" | sanitize)"
 
