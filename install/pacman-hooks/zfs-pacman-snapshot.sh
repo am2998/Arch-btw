@@ -18,7 +18,7 @@ log() {
 
 sanitize() {
     # Allow only characters valid in ZFS snapshot names.
-    # (Conservative set: alnum, underscore, dash, dot, colon)
+    # Conservative set: alnum, underscore, dash, dot, colon
     tr -cd 'A-Za-z0-9_.:-' | tr '[:upper:]' '[:lower:]'
 }
 
@@ -93,7 +93,10 @@ main() {
     targets="$(read_targets || true)"
 
     if [ -n "$targets" ] && command -v sha256sum >/dev/null 2>&1; then
-        targets_hash="$(printf '%s\n' "$targets" | sha256sum | awk '{print $1}' | cut -c1-10)"
+        targets_hash="$(printf '%s\n' "$targets" \
+            | sha256sum \
+            | awk '{print $1}' \
+            | cut -c1-10)"
     else
         targets_hash="no-targets"
     fi
@@ -106,14 +109,16 @@ main() {
     # Best-effort locking (avoid overlapping hooks).
     if command -v flock >/dev/null 2>&1; then
         mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || true
-        flock -n "$LOCK_FILE" bash -c "
-            snapshot_dataset \"$root_ds\" \"$snapname\";
-            snapshot_dataset \"$home_ds\" \"$snapname\";
-        " || true
-    else
-        snapshot_dataset "$root_ds" "$snapname"
-        snapshot_dataset "$home_ds" "$snapname"
+
+        # Open lock file on FD 9
+        exec 9>"$LOCK_FILE" || true
+
+        # Non-blocking lock; if already locked, silently skip
+        flock -n 9 || exit 0
     fi
+
+    snapshot_dataset "$root_ds" "$snapname"
+    snapshot_dataset "$home_ds" "$snapname"
 
     exit 0
 }
