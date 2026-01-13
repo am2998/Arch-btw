@@ -44,10 +44,7 @@ sudo systemctl enable --now containerd
 ### Option 2: CRI-O
 
 ```bash
-sudo pacman -S --needed base-devel git
-git clone https://aur.archlinux.org/cri-o.git
-cd cri-o
-makepkg -si
+sudo pacman -S cri-o crun
 sudo systemctl enable --now crio
 ```
 
