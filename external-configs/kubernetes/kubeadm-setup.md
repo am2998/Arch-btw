@@ -13,6 +13,7 @@ sudo pacman -S docker
 ```bash
 sudo pacman -S kubeadm kubelet kubectl
 sudo systemctl enable --now kubelet
+sudo swapoff -a
 ```
 
 ## Configure Network Bridge
