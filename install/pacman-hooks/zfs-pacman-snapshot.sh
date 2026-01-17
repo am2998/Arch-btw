@@ -7,6 +7,7 @@ set -euo pipefail
 
 DISABLE_SENTINEL="/etc/zfs-pacman-snapshot.disable"
 LOCK_FILE="/run/lock/zfs-pacman-snapshot.lock"
+MAX_SNAPSHOTS="${ZFS_PACMAN_MAX_SNAPSHOTS:-10}"  # Keep max 10 snapshots by default
 
 log() {
     if command -v logger >/dev/null 2>&1; then
@@ -52,6 +53,43 @@ is_zfs_dataset() {
     zfs list -H -o name "$ds" >/dev/null 2>&1
 }
 
+cleanup_old_snapshots() {
+    local dataset="$1"
+    local max_snapshots="${2:-10}"  # Default: keep 10 snapshots
+    
+    if ! is_zfs_dataset "$dataset"; then
+        return 0
+    fi
+    
+    # Get pacman snapshots sorted by creation time (oldest first)
+    local snapshots
+    snapshots="$(zfs list -H -t snapshot -o name -S creation "$dataset" 2>/dev/null | grep "@pacman-" || true)"
+    
+    if [ -z "$snapshots" ]; then
+        return 0
+    fi
+    
+    local count=0
+    local to_delete=()
+    
+    # Count snapshots and mark old ones for deletion
+    while IFS= read -r snap; do
+        count=$((count + 1))
+        if [ "$count" -gt "$max_snapshots" ]; then
+            to_delete+=("$snap")
+        fi
+    done <<< "$snapshots"
+    
+    # Delete old snapshots
+    for snap in "${to_delete[@]}"; do
+        if zfs destroy "$snap" >/dev/null 2>&1; then
+            log "old snapshot deleted: $snap"
+        else
+            log "WARNING: failed to delete old snapshot: $snap"
+        fi
+    done
+}
+
 snapshot_dataset() {
     local dataset="$1"
     local snapname="$2"
@@ -62,6 +100,8 @@ snapshot_dataset() {
 
     if zfs snapshot "${dataset}@${snapname}" >/dev/null 2>&1; then
         log "snapshot created: ${dataset}@${snapname}"
+        # Clean up old snapshots after creating new one
+        cleanup_old_snapshots "$dataset" "$MAX_SNAPSHOTS"
     else
         log "WARNING: snapshot failed: ${dataset}@${snapname}"
     fi
