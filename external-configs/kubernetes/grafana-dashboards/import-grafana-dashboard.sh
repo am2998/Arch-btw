@@ -195,7 +195,7 @@ main() {
             echo ""
             echo "PREREQUISITI:"
             echo "- Grafana deve essere accessibile su $GRAFANA_URL"
-            echo "- Usa './monitoring-portforward.sh start' per il port-forward"
+            echo "- Usa './monitoring-portfwd.sh start' per il port-forward"
             ;;
         *)
             error "Comando '$command' non riconosciuto"
