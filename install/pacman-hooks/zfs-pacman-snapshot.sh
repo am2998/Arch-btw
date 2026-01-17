@@ -7,7 +7,7 @@ set -euo pipefail
 
 DISABLE_SENTINEL="/etc/zfs-pacman-snapshot.disable"
 LOCK_FILE="/run/lock/zfs-pacman-snapshot.lock"
-MAX_SNAPSHOTS="${ZFS_PACMAN_MAX_SNAPSHOTS:-10}"  # Keep max 10 snapshots by default
+MAX_SNAPSHOTS="${ZFS_PACMAN_MAX_SNAPSHOTS:-3}"  # Keep max 3 snapshots by default
 
 log() {
     if command -v logger >/dev/null 2>&1; then
@@ -55,7 +55,7 @@ is_zfs_dataset() {
 
 cleanup_old_snapshots() {
     local dataset="$1"
-    local max_snapshots="${2:-10}"  # Default: keep 10 snapshots
+    local max_snapshots="${2:-3}"  # Default: keep 3 snapshots
     
     if ! is_zfs_dataset "$dataset"; then
         return 0
@@ -136,7 +136,7 @@ main() {
         targets_hash="$(printf '%s\n' "$targets" \
             | sha256sum \
             | awk '{print $1}' \
-            | cut -c1-10)"
+            | cut -c1-5)"
     else
         targets_hash="no-targets"
     fi

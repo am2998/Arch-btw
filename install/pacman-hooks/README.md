@@ -20,10 +20,10 @@ These files create a ZFS snapshot *before* every `pacman` transaction that insta
 ## Configuration
 
 ### Automatic cleanup
-By default, the script keeps the latest **10 snapshots** per dataset. You can configure this by setting the environment variable:
+By default, the script keeps the latest **3 snapshots** per dataset. You can configure this by setting the environment variable:
 
 ```bash
-export ZFS_PACMAN_MAX_SNAPSHOTS=15  # Keep 15 snapshots instead of 10
+export ZFS_PACMAN_MAX_SNAPSHOTS=10  # Keep 10 snapshots instead of 3
 ```
 
 Or create a systemd environment file at `/etc/environment.d/zfs-pacman.conf`:
