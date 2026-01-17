@@ -1,0 +1,40 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+  annotations:
+    policies.kyverno.io/title: Require Labels
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod, Deployment, Service
+    policies.kyverno.io/description: >-
+      Richiede che tutti i workload abbiano le label obbligatorie per il tracking e la gestione.
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+  - name: check-labels
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          - Deployment
+          - Service
+          - StatefulSet
+          - DaemonSet
+    exclude:
+      any:
+      - resources:
+          namespaces:
+          - kube-system
+          - kyverno
+          - monitoring
+    validate:
+      message: "Le seguenti label sono obbligatorie: app.kubernetes.io/name, app.kubernetes.io/version, app.kubernetes.io/component"
+      pattern:
+        metadata:
+          labels:
+            app.kubernetes.io/name: "?*"
+            app.kubernetes.io/version: "?*"
+            app.kubernetes.io/component: "?*"
