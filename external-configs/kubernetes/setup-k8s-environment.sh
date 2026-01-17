@@ -266,8 +266,7 @@ show_access_info() {
     echo "Alertmanager: http://localhost:9093 (con port-forward)"
     
     echo -e "\n${BLUE}=== COMANDI UTILI ===${NC}"
-    echo "Status rapido: ./check-status.sh"
-    echo "Port forward: ./monitoring-portforward.sh start"
+    echo "Port forward: ./monitoring-portfwd.sh start"
     echo "Verifica completa: kubectl get pods --all-namespaces"
     echo "Cleanup completo: ./cleanup-k8s-environment.sh"
     
@@ -318,7 +317,6 @@ wait_for_deployments() {
     
     if [ $elapsed -ge $max_wait ]; then
         warn "Timeout raggiunto. Alcuni componenti potrebbero ancora essere in fase di avvio."
-        warn "Usa './check-status.sh' per verificare lo stato in qualsiasi momento."
     fi
 }
 
@@ -391,8 +389,7 @@ main() {
     show_access_info
     
     log "Ambiente Kubernetes configurato con successo!"
-    warn "Se alcuni componenti sono ancora 'IN CORSO', usa './check-status.sh' per verificare."
-}
+    warn "Se alcuni componenti sono ancora 'IN CORSO'."
 }
 
 # Esegui script
