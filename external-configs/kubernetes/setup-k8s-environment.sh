@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script per configurare ambiente Kubernetes base
-# Include: Monitoring (Prometheus/Grafana), Kyverno, Network Policies, Storage
+# Include: Monitoring (Prometheus/Grafana), New Relic, Kyverno, Network Policies, Storage
 
 set -e
 
@@ -49,6 +49,43 @@ check_prerequisites() {
     fi
     
     log "Prerequisiti verificati con successo"
+}
+
+# Installa New Relic
+install_newrelic() {
+    log "Installazione New Relic..."
+    
+    # Verifica se la license key è impostata
+    if [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
+        warn "NEW_RELIC_LICENSE_KEY non impostata. Saltando installazione New Relic."
+        warn "Per installare New Relic, esporta la variabile: export NEW_RELIC_LICENSE_KEY=your_license_key"
+        return 0
+    fi
+    
+    # Aggiungi repository Helm
+    helm repo add newrelic https://helm-charts.newrelic.com >/dev/null 2>&1 || true
+    helm repo update >/dev/null 2>&1
+    
+    # Crea namespace
+    kubectl create namespace newrelic --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+    
+    # Installa New Relic Bundle (in background)
+    log "Avvio deployment New Relic Bundle..."
+    helm upgrade --install newrelic-bundle newrelic/nri-bundle \
+        --namespace newrelic \
+        --set global.licenseKey="$NEW_RELIC_LICENSE_KEY" \
+        --set global.cluster="$(kubectl config current-context)" \
+        --set newrelic-infrastructure.privileged=true \
+        --set global.lowDataMode=true \
+        --set kube-state-metrics.enabled=true \
+        --set kubeEvents.enabled=true \
+        --set newrelic-prometheus-agent.enabled=true \
+        --set newrelic-prometheus-agent.lowDataMode=true \
+        --set logging.enabled=true \
+        --set newrelic-logging.lowDataMode=true \
+        --timeout=10m >/dev/null 2>&1 &
+    
+    log "New Relic Bundle deployment avviato"
 }
 
 # Installa Prometheus stack
@@ -117,6 +154,36 @@ setup_storage() {
     fi
 }
 
+# Installa Falco
+install_falco() {
+    log "Installazione Falco..."
+    
+    # Aggiungi repository Helm
+    helm repo add falcosecurity https://falcosecurity.github.io/charts >/dev/null 2>&1 || true
+    helm repo update >/dev/null 2>&1
+    
+    # Crea namespace
+    kubectl create namespace falco --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+    
+    # Installa Falco (in background)
+    log "Avvio deployment Falco..."
+    helm upgrade --install falco falcosecurity/falco \
+        --namespace falco \
+        --set falco.grpc.enabled=true \
+        --set falco.grpcOutput.enabled=true \
+        --set falco.httpOutput.enabled=true \
+        --set falco.jsonOutput=true \
+        --set falco.logLevel=info \
+        --set falco.syscallEventDrops.actions="log,alert" \
+        --set falco.priority=debug \
+        --set resources.requests.cpu=100m \
+        --set resources.requests.memory=512Mi \
+        --set resources.limits.memory=1Gi \
+        --timeout=10m >/dev/null 2>&1 &
+    
+    log "Falco deployment avviato"
+}
+
 # Installa Kyverno
 install_kyverno() {
     log "Installazione Kyverno..."
@@ -138,6 +205,42 @@ install_kyverno() {
         --timeout=10m >/dev/null 2>&1 &
     
     log "Kyverno deployment avviato"
+}
+
+# Installa Rancher Docker container
+install_rancher() {
+    log "Installazione Rancher Docker container..."
+    
+    # Verifica se Docker è disponibile
+    if ! command -v docker &> /dev/null; then
+        warn "Docker non trovato. Saltando installazione Rancher."
+        return 0
+    fi
+    
+    # Ferma container esistente se presente
+    docker stop rancher 2>/dev/null || true
+    docker rm rancher 2>/dev/null || true
+    
+    # Crea directory per audit logs
+    mkdir -p /tmp/rancher-audit-logs
+    
+    # Avvia Rancher con audit logging abilitato
+    log "Avvio container Rancher con audit logging..."
+    docker run -d --restart=unless-stopped \
+        --name rancher \
+        -p 80:80 -p 443:443 \
+        -v /tmp/rancher-audit-logs:/var/log/audit \
+        -e CATTLE_FEATURES="audit-log=true" \
+        -e AUDIT_LEVEL=2 \
+        -e AUDIT_LOG_PATH=/var/log/audit/audit.log \
+        -e AUDIT_LOG_MAXAGE=30 \
+        -e AUDIT_LOG_MAXBACKUP=10 \
+        -e AUDIT_LOG_MAXSIZE=100 \
+        --privileged \
+        rancher/rancher:latest >/dev/null 2>&1 &
+    
+    log "Rancher container avviato con audit logging"
+    log "Audit logs disponibili in: /tmp/rancher-audit-logs/"
 }
 
 # Applica Kyverno policies
@@ -201,11 +304,20 @@ check_component_status() {
 verify_installations() {
     log "Verifica stato componenti..."
     
+    echo -e "\n${BLUE}=== STATUS NEW RELIC ===${NC}"
+    check_component_status "newrelic" "Infrastructure" "app.kubernetes.io/name=newrelic-infrastructure"
+    check_component_status "newrelic" "Kube State Metrics" "app.kubernetes.io/name=kube-state-metrics"
+    check_component_status "newrelic" "Prometheus Agent" "app.kubernetes.io/name=newrelic-prometheus-agent"
+    check_component_status "newrelic" "Logging" "app.kubernetes.io/name=newrelic-logging"
+    
     echo -e "\n${BLUE}=== STATUS MONITORING ===${NC}"
     check_component_status "monitoring" "Prometheus" "app.kubernetes.io/name=prometheus"
     check_component_status "monitoring" "Grafana" "app.kubernetes.io/name=grafana"
     check_component_status "monitoring" "Alertmanager" "app.kubernetes.io/name=alertmanager"
     check_component_status "monitoring" "Kube State Metrics" "app.kubernetes.io/name=kube-state-metrics"
+    
+    echo -e "\n${BLUE}=== STATUS FALCO ===${NC}"
+    check_component_status "falco" "Falco DaemonSet" "app.kubernetes.io/name=falco"
     
     echo -e "\n${BLUE}=== STATUS KYVERNO ===${NC}"
     check_component_status "kyverno" "Admission Controller" "app.kubernetes.io/component=admission-controller"
@@ -249,11 +361,30 @@ verify_installations() {
     else
         echo -e "  ${YELLOW}⚠${NC} Nessuna cluster policy trovata"
     fi
+    
+    echo -e "\n${BLUE}=== RANCHER CONTAINER ===${NC}"
+    if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "rancher"; then
+        local rancher_status=$(docker ps --format "{{.Status}}" --filter "name=rancher")
+        echo -e "  ${GREEN}✓${NC} Rancher container: $rancher_status"
+        echo -e "  ${BLUE}URL:${NC} https://localhost (primo accesso per setup)"
+        echo -e "  ${BLUE}Audit logs:${NC} /tmp/rancher-audit-logs/"
+    else
+        echo -e "  ${YELLOW}⚠${NC} Rancher container non in esecuzione"
+    fi
 }
 
 # Mostra informazioni di accesso
 show_access_info() {
     log "Informazioni di accesso:"
+    
+    echo -e "\n${BLUE}=== NEW RELIC ===${NC}"
+    if [ -n "$NEW_RELIC_LICENSE_KEY" ]; then
+        echo "Dashboard: https://one.newrelic.com"
+        echo "Cluster: $(kubectl config current-context)"
+        echo "License Key: ${NEW_RELIC_LICENSE_KEY:0:8}..."
+    else
+        echo "Non installato (NEW_RELIC_LICENSE_KEY non impostata)"
+    fi
     
     echo -e "\n${BLUE}=== GRAFANA ===${NC}"
     echo "URL NodePort: http://<NODE-IP>:30300"
@@ -264,6 +395,19 @@ show_access_info() {
     echo -e "\n${BLUE}=== PROMETHEUS & ALERTMANAGER ===${NC}"
     echo "Prometheus: http://localhost:9090 (con port-forward)"
     echo "Alertmanager: http://localhost:9093 (con port-forward)"
+    
+    echo -e "\n${BLUE}=== FALCO ===${NC}"
+    echo "Logs: kubectl logs -n falco -l app.kubernetes.io/name=falco"
+    echo "Events: kubectl get events -n falco"
+    
+    echo -e "\n${BLUE}=== RANCHER ===${NC}"
+    if docker ps --filter "name=rancher" --format "{{.Names}}" | grep -q "rancher"; then
+        echo "URL: https://localhost"
+        echo "Audit logs: /tmp/rancher-audit-logs/audit.log"
+        echo "Container logs: docker logs rancher"
+    else
+        echo "Container non in esecuzione"
+    fi
     
     echo -e "\n${BLUE}=== COMANDI UTILI ===${NC}"
     echo "Port forward: ./monitoring-portfwd.sh start"
@@ -299,6 +443,14 @@ wait_for_deployments() {
             monitoring_ready=true
         fi
         
+        # Verifica falco
+        local falco_pods=$(kubectl get pods -n falco --no-headers 2>/dev/null | grep "Running" | wc -l)
+        local falco_total=$(kubectl get pods -n falco --no-headers 2>/dev/null | wc -l)
+        local falco_ready=true
+        if [ "$falco_total" -gt 0 ] && [ "$falco_pods" -ne "$falco_total" ]; then
+            falco_ready=false
+        fi
+        
         # Verifica kyverno (esclude job completati)
         local kyverno_pods=$(kubectl get pods -n kyverno --no-headers 2>/dev/null | grep "Running" | wc -l)
         local kyverno_total=$(kubectl get pods -n kyverno --no-headers 2>/dev/null | grep -v "Completed" | wc -l)
@@ -306,7 +458,17 @@ wait_for_deployments() {
             kyverno_ready=true
         fi
         
-        if [ "$monitoring_ready" = true ] && [ "$kyverno_ready" = true ]; then
+        # Verifica newrelic (se installato)
+        local newrelic_ready=true
+        if [ -n "$NEW_RELIC_LICENSE_KEY" ]; then
+            local newrelic_pods=$(kubectl get pods -n newrelic --no-headers 2>/dev/null | grep "Running" | wc -l)
+            local newrelic_total=$(kubectl get pods -n newrelic --no-headers 2>/dev/null | grep -v "Completed" | wc -l)
+            if [ "$newrelic_total" -gt 0 ] && [ "$newrelic_pods" -ne "$newrelic_total" ]; then
+                newrelic_ready=false
+            fi
+        fi
+        
+        if [ "$monitoring_ready" = true ] && [ "$kyverno_ready" = true ] && [ "$newrelic_ready" = true ] && [ "$falco_ready" = true ]; then
             log "Tutti i componenti principali sono pronti!"
             break
         fi
@@ -361,27 +523,36 @@ main() {
     check_prerequisites
     
     # Installa componenti (monitoring prima per evitare interferenze)
-    log "=== FASE 1: INSTALLAZIONE MONITORING ==="
+    log "=== FASE 1: INSTALLAZIONE NEW RELIC ==="
+    install_newrelic
+    
+    log "=== FASE 2: INSTALLAZIONE MONITORING ==="
     install_prometheus
     setup_grafana_access
     
-    log "=== FASE 2: CONFIGURAZIONE STORAGE ==="
+    log "=== FASE 3: CONFIGURAZIONE STORAGE ==="
     setup_storage
     
-    log "=== FASE 3: INSTALLAZIONE KYVERNO ==="
+    log "=== FASE 4: INSTALLAZIONE FALCO ==="
+    install_falco
+    
+    log "=== FASE 5: INSTALLAZIONE KYVERNO ==="
     install_kyverno
     apply_kyverno_policies
     
-    log "=== FASE 4: NETWORK POLICIES ==="
+    log "=== FASE 6: INSTALLAZIONE RANCHER ==="
+    install_rancher
+    
+    log "=== FASE 7: NETWORK POLICIES ==="
     apply_network_policies
     
     # Attendi e verifica
-    log "=== FASE 5: VERIFICA DEPLOYMENT ==="
+    log "=== FASE 8: VERIFICA DEPLOYMENT ==="
     wait_for_deployments
     
     # Test policy se tutto è pronto
     if kubectl get pods -n kyverno --no-headers 2>/dev/null | grep -q "Running"; then
-        log "=== FASE 6: TEST POLICY KYVERNO ==="
+        log "=== FASE 9: TEST POLICY KYVERNO ==="
         test_kyverno_policies
     fi
     
