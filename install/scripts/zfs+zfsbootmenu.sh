@@ -70,15 +70,17 @@ error_exit() {
     exit 1
 }
 
+print_header "Create main user account"
+
+# Create the main user account
+useradd -m -G wheel -s /bin/bash "$USERNAME"
+echo "$USERNAME:$USERPASS" | chpasswd
+echo "User $USERNAME created successfully."
+
 print_header "Install paru AUR helper"
 
-# Create temporary user for building paru and AUR packages
-useradd -m -G wheel -s /bin/bash builder
-echo "builder:builder" | chpasswd
-echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
-
-# Install paru as builder user
-sudo -u builder bash -c '
+# Install paru as the main user
+sudo -u "$USERNAME" bash -c '
 cd /tmp
 git clone https://aur.archlinux.org/paru.git
 cd paru
@@ -90,12 +92,8 @@ print_header "Install Niri desktop environment and components"
 # Install base packages with pacman
 pacman -S --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty wl-clipboard cliphist cava qt6-multimedia-ffmpeg
 
-# Install AUR packages with paru as builder user
-sudo -u builder paru -S --noconfirm --needed noctalia-shell dms-shell-bin matugen
-
-# Clean up builder user
-userdel -r builder
-rm /etc/sudoers.d/builder
+# Install AUR packages with paru as the main user
+sudo -u "$USERNAME" paru -S --noconfirm --needed dms-shell-bin matugen
 
 # Enable DMS service for user session management
 systemctl --user --global enable dms.service
@@ -105,7 +103,14 @@ mkdir -p /etc/profile.d
 cat > /etc/profile.d/niri-autostart.sh << 'NIRI_EOF'
 # Auto-start Niri on TTY1 login
 if [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
-    exec niri-session
+    # Check if niri is available and user wants to start it
+    if command -v niri-session >/dev/null 2>&1; then
+        echo "Press Enter to start Niri, or Ctrl+C to stay in shell..."
+        read -r
+        exec niri-session
+    else
+        echo "Warning: niri-session not found, staying in shell"
+    fi
 fi
 NIRI_EOF
 
@@ -160,8 +165,13 @@ echo -n "Skip to desktop installation only? (y/N): "; read -r SKIP_TO_DESKTOP
 if [[ "$SKIP_TO_DESKTOP" =~ ^[Yy]$ ]]; then
     print_header "Skipping to desktop installation"
     
-    # Jump directly to desktop installation in chroot (no snapshots needed)
-    arch-chroot /mnt /bin/bash --noprofile --norc -euo pipefail <<EOF
+    echo -n "Enter the username for the main user: "; read -r USERNAME
+    get_password "Enter the password for user $USERNAME" USERPASS
+    
+    # Jump directly to desktop installation in chroot
+    arch-chroot /mnt \
+        /usr/bin/env USERNAME="$USERNAME" USERPASS="$USERPASS" \
+        /bin/bash --noprofile --norc -euo pipefail <<EOF
 
 $(install_desktop)
 EOF
@@ -250,7 +260,7 @@ mount ${DISK}${PARTITION_1} /mnt/efi || error_exit "Failed to mount EFI partitio
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget nano || error_exit "Failed to install base system (pacstrap)"
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget nano openssh || error_exit "Failed to install base system (pacstrap)"
 
 
 print_header "Generate fstab file"
@@ -292,11 +302,14 @@ set +o xtrace || true
 
 echo "Chrooted successfully!"
 
+systemctl enable sshd
+
 print_header "Configure mirrors and Enable Network Manager service"
 
 reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 systemctl enable NetworkManager
 systemctl mask NetworkManager-wait-online.service
+
 
 
 print_header "Configure locale"
