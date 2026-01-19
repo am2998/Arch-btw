@@ -275,9 +275,33 @@ print_header "Install utilities and Enable services"
 pacman -S --noconfirm net-tools flatpak git man nano
 
 
+print_header "Install audio components"
+
+pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
+
+
+print_header "Install NVIDIA drivers"
+
+pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+
+
+print_header "Set root user password"
+
+echo "root:$ROOTPASS" | chpasswd
+
+echo "Root password set."
+
+
+print_header "Configure sudoers file"
+
+# Configure sudo using visudo-safe method
+echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
+chmod 0440 /etc/sudoers.d/wheel
+
+
 print_header "Create ZFS snapshots before installing desktop environment"
 
-# Create snapshots for root and home datasets before major changes
+# Create snapshots for root and home datasets after system components but before desktop
 zfs snapshot zroot/ROOT/default@pre-desktop-install
 zfs snapshot zroot/data/home@pre-desktop-install
 echo "ZFS snapshots created: pre-desktop-install"
@@ -323,30 +347,6 @@ fi
 NIRI_EOF
 
 chmod +x /etc/profile.d/niri-autostart.sh
-
-
-print_header "Install audio components"
-
-pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
-
-
-print_header "Install NVIDIA drivers"
-
-pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
-
-
-print_header "Set root user password"
-
-echo "root:$ROOTPASS" | chpasswd
-
-echo "Root password set."
-
-
-print_header "Configure sudoers file"
-
-# Configure sudo using visudo-safe method
-echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
-chmod 0440 /etc/sudoers.d/wheel
 
 echo "Configuration completed successfully!"
 
