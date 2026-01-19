@@ -87,7 +87,7 @@ cd paru
 makepkg -si --noconfirm
 '
 
-print_header "Install Niri desktop environment and components"
+print_header "Install Niri compositor and components"
 
 # Install base packages with pacman
 pacman -S --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty wl-clipboard cliphist cava qt6-multimedia-ffmpeg
@@ -99,84 +99,68 @@ sudo -u "$USERNAME" paru -S --noconfirm --needed dms-shell-bin matugen
 systemctl --user --global enable dms.service
 
 # Configure Niri to start automatically after TTY login
-mkdir -p /etc/profile.d
-cat > /etc/profile.d/niri-autostart.sh << 'NIRI_EOF'
-# Auto-start Niri on TTY1 login
-if [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
-    # Check if niri is available and user wants to start it
-    if command -v niri-session >/dev/null 2>&1; then
-        echo "Press Enter to start Niri, or Ctrl+C to stay in shell..."
-        read -r
-        exec niri-session
-    else
-        echo "Warning: niri-session not found, staying in shell"
-    fi
+mkdir -p /home/$USERNAME
+cat >> /home/$USERNAME/.bashrc << 'BASHRC_EOF'
+if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" -eq 1 ]; then
+    systemctl --user restart niri.service
 fi
-NIRI_EOF
+BASHRC_EOF
 
-chmod +x /etc/profile.d/niri-autostart.sh
+chown $USERNAME:$USERNAME /home/$USERNAME/.bashrc
+
+echo "Niri installation completed!"
 
 DESKTOP_INSTALL_EOF
 }
 
 # Completion and reboot handling function
 handle_completion() {
-    local install_type="$1"
-    
     echo ""
     echo "=========================================="
-    if [ "$install_type" = "desktop-only" ]; then
-        echo "Desktop installation completed!"
-        echo "=========================================="
-        echo ""
-        echo "Niri desktop environment has been installed."
-        echo "After reboot, log in via TTY1 - Niri will start automatically"
-        echo "ZFS snapshots created: pre-desktop-install (for root and home)"
-        echo ""
-        exit 0
+    echo "Installation completed successfully!"
+    echo "=========================================="
+    echo ""
+    echo "IMPORTANT: Before rebooting:"
+    echo "1. Remove the installation media"
+    echo "2. After reboot, log in via TTY1 - Niri will start automatically"
+    echo "3. ZFS snapshots created: pre-desktop-install (for root and home)"
+    echo "4. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
+    echo ""
+    
+    # Flush any pending input so accidental earlier keypresses
+    # don't get consumed by this final prompt.
+    while read -r -t 0; do read -r || true; done
+    
+    read -r -p "Type REBOOT to reboot: " REBOOT_CONFIRM
+    if [ "$REBOOT_CONFIRM" = "REBOOT" ]; then
+        reboot
     else
-        echo "Installation completed successfully!"
-        echo "=========================================="
-        echo ""
-        echo "IMPORTANT: Before rebooting:"
-        echo "1. Remove the installation media"
-        echo "2. After reboot, log in via TTY1 - Niri will start automatically"
-        echo "3. ZFS snapshots created: pre-desktop-install (for root and home)"
-        echo "4. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
-        echo ""
-        
-        # Flush any pending input so accidental earlier keypresses
-        # don't get consumed by this final prompt.
-        while read -r -t 0; do read -r || true; done
-        
-        read -r -p "Type REBOOT to reboot: " REBOOT_CONFIRM
-        if [ "$REBOOT_CONFIRM" = "REBOOT" ]; then
-            reboot
-        else
-            echo "Reboot skipped. You can reboot manually when ready."
-        fi
+        echo "Reboot skipped. You can reboot manually when ready."
     fi
 }
 
 echo -e "\n=== Arch Linux ZFS Installation ==="
 echo -e "This script will ERASE all data on the selected disk!\n"
 
-echo -n "Skip to desktop installation only? (y/N): "; read -r SKIP_TO_DESKTOP
-if [[ "$SKIP_TO_DESKTOP" =~ ^[Yy]$ ]]; then
-    print_header "Skipping to desktop installation"
-    
-    echo -n "Enter the username for the main user: "; read -r USERNAME
-    get_password "Enter the password for user $USERNAME" USERPASS
-    
-    # Jump directly to desktop installation in chroot
-    arch-chroot /mnt \
-        /usr/bin/env USERNAME="$USERNAME" USERPASS="$USERPASS" \
-        /bin/bash --noprofile --norc -euo pipefail <<EOF
+# Check if ZFS datasets exist to determine if should offer desktop-only installation
+if zfs list zroot/ROOT/default &>/dev/null && zfs list zroot/data/home &>/dev/null; then
+    echo -n "Skip to desktop installation only? (y/N): "; read -r SKIP_TO_DESKTOP
+    if [[ "$SKIP_TO_DESKTOP" =~ ^[Yy]$ ]]; then
+        print_header "Skipping to desktop installation"
+        
+        echo -n "Enter the username for the main user: "; read -r USERNAME
+        get_password "Enter the password for user $USERNAME" USERPASS
+        
+        # Jump directly to desktop installation in chroot
+        arch-chroot /mnt \
+            /usr/bin/env USERNAME="$USERNAME" USERPASS="$USERPASS" \
+            /bin/bash --noprofile --norc -euo pipefail <<EOF
 
 $(install_desktop)
 EOF
 
-    handle_completion "desktop-only"
+        exit 0
+    fi
 fi
 
 get_password "Enter the password for root user" ROOTPASS
@@ -420,19 +404,22 @@ echo "Root password set."
 
 print_header "Configure sudoers file"
 
-# Configure sudo using visudo-safe method
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
 chmod 0440 /etc/sudoers.d/wheel
 echo "Sudoers file configured!"
 
-print_header "Create ZFS snapshots before installing desktop environment"
+print_header "Create ZFS snapshots"
 
-# Create snapshots for root and home datasets after system components but before desktop
 zfs snapshot zroot/ROOT/default@pre-desktop-install
 zfs snapshot zroot/data/home@pre-desktop-install
 echo "ZFS snapshots created: pre-desktop-install"
 
-$(install_desktop)
+echo -n "Do you want to install Niri compositor? (Y/n): "; read -r INSTALL_DESKTOP
+if [[ ! "\$INSTALL_DESKTOP" =~ ^[Nn]$ ]]; then
+    $(install_desktop)
+else
+    echo "Desktop installation skipped."
+fi
 
 echo "Configuration completed successfully!"
 
@@ -448,4 +435,4 @@ umount -R /mnt || true
 zfs umount -a || true
 zpool export zroot || true
 
-handle_completion "full"
+handle_completion
