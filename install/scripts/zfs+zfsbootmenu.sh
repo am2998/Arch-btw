@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Arch Linux + ZFS + ZFSBootMenu + KDE Plasma Installation Script
+# Arch Linux + ZFS + ZFSBootMenu + Niri Installation Script
 # Optimized and hardened version
 
 set -euo pipefail  # Exit on error, undefined variables, and pipe failures
@@ -275,20 +275,54 @@ print_header "Install utilities and Enable services"
 pacman -S --noconfirm net-tools flatpak git man nano
 
 
-print_header "Install KDE desktop environment"
+print_header "Create ZFS snapshots before installing desktop environment"
 
-pacman -S --needed --noconfirm plasma-desktop sddm dolphin konsole okular plasma-nm kscreen ark spectacle
-systemctl enable sddm.service
+# Create snapshots for root and home datasets before major changes
+zfs snapshot zroot/ROOT/default@pre-desktop-install
+zfs snapshot zroot/data/home@pre-desktop-install
+echo "ZFS snapshots created: pre-desktop-install"
 
-# Configure SDDM with Breeze theme and Wayland
-mkdir -p /etc/sddm.conf.d || error_exit "Failed to create sddm config directory"
+
+print_header "Install paru AUR helper"
+
+# Create temporary user for building paru
+useradd -m -G wheel -s /bin/bash builder
+echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+
+# Install paru as builder user
+sudo -u builder bash -c '
+cd /tmp
+git clone https://aur.archlinux.org/paru.git
+cd paru
+makepkg -si --noconfirm
+'
+
+# Clean up builder user
+userdel -r builder
+rm /etc/sudoers.d/builder
 
 
-bash -c 'cat > /etc/sddm.conf.d/theme.conf <<EOF
-[Theme]
-Current=breeze
-CursorTheme=breeze_cursors
-EOF'
+print_header "Install Niri desktop environment and components"
+
+# Install base packages with pacman
+pacman -S --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty wl-clipboard cliphist cava qt6-multimedia-ffmpeg
+
+# Install AUR packages with paru (run as root for now, will be configured for user later)
+paru -S --noconfirm noctalia-shell dms-shell-bin matugen
+
+# Enable DMS service for user session management
+systemctl --user --global enable dms.service
+
+# Configure Niri to start automatically after TTY login
+mkdir -p /etc/profile.d
+cat > /etc/profile.d/niri-autostart.sh << 'NIRI_EOF'
+# Auto-start Niri on TTY1 login
+if [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
+    exec niri-session
+fi
+NIRI_EOF
+
+chmod +x /etc/profile.d/niri-autostart.sh
 
 
 print_header "Install audio components"
@@ -335,7 +369,9 @@ echo "=========================================="
 echo ""
 echo "IMPORTANT: Before rebooting:"
 echo "1. Remove the installation media"
-echo "2. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
+echo "2. After reboot, log in via TTY1 - Niri will start automatically"
+echo "3. ZFS snapshots created: pre-desktop-install (for root and home)"
+echo "4. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
 echo ""
 
 # Flush any pending input so accidental earlier keypresses
