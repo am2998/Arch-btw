@@ -53,8 +53,121 @@ get_password() {
     done
 }
 
+# Desktop installation function
+install_desktop() {
+    cat <<'DESKTOP_INSTALL_EOF'
+
+print_header() {
+    local title="$1"
+    local line="--------------------------------------------------------------------------------------------------------------------------"
+    echo -e "\n\n# ${line}"
+    echo -e "# ${title}"
+    echo -e "# ${line}\n"
+}
+
+error_exit() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
+
+print_header "Install paru AUR helper"
+
+# Create temporary user for building paru and AUR packages
+useradd -m -G wheel -s /bin/bash builder
+echo "builder:builder" | chpasswd
+echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+
+# Install paru as builder user
+sudo -u builder bash -c '
+cd /tmp
+git clone https://aur.archlinux.org/paru.git
+cd paru
+makepkg -si --noconfirm
+'
+
+print_header "Install Niri desktop environment and components"
+
+# Install base packages with pacman
+pacman -S --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty wl-clipboard cliphist cava qt6-multimedia-ffmpeg
+
+# Install AUR packages with paru as builder user
+sudo -u builder paru -S --noconfirm --needed noctalia-shell dms-shell-bin matugen
+
+# Clean up builder user
+userdel -r builder
+rm /etc/sudoers.d/builder
+
+# Enable DMS service for user session management
+systemctl --user --global enable dms.service
+
+# Configure Niri to start automatically after TTY login
+mkdir -p /etc/profile.d
+cat > /etc/profile.d/niri-autostart.sh << 'NIRI_EOF'
+# Auto-start Niri on TTY1 login
+if [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
+    exec niri-session
+fi
+NIRI_EOF
+
+chmod +x /etc/profile.d/niri-autostart.sh
+
+DESKTOP_INSTALL_EOF
+}
+
+# Completion and reboot handling function
+handle_completion() {
+    local install_type="$1"
+    
+    echo ""
+    echo "=========================================="
+    if [ "$install_type" = "desktop-only" ]; then
+        echo "Desktop installation completed!"
+        echo "=========================================="
+        echo ""
+        echo "Niri desktop environment has been installed."
+        echo "After reboot, log in via TTY1 - Niri will start automatically"
+        echo "ZFS snapshots created: pre-desktop-install (for root and home)"
+        echo ""
+        exit 0
+    else
+        echo "Installation completed successfully!"
+        echo "=========================================="
+        echo ""
+        echo "IMPORTANT: Before rebooting:"
+        echo "1. Remove the installation media"
+        echo "2. After reboot, log in via TTY1 - Niri will start automatically"
+        echo "3. ZFS snapshots created: pre-desktop-install (for root and home)"
+        echo "4. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
+        echo ""
+        
+        # Flush any pending input so accidental earlier keypresses
+        # don't get consumed by this final prompt.
+        while read -r -t 0; do read -r || true; done
+        
+        read -r -p "Type REBOOT to reboot: " REBOOT_CONFIRM
+        if [ "$REBOOT_CONFIRM" = "REBOOT" ]; then
+            reboot
+        else
+            echo "Reboot skipped. You can reboot manually when ready."
+        fi
+    fi
+}
+
 echo -e "\n=== Arch Linux ZFS Installation ==="
 echo -e "This script will ERASE all data on the selected disk!\n"
+
+echo -n "Skip to desktop installation only? (y/N): "; read -r SKIP_TO_DESKTOP
+if [[ "$SKIP_TO_DESKTOP" =~ ^[Yy]$ ]]; then
+    print_header "Skipping to desktop installation"
+    
+    # Jump directly to desktop installation in chroot (no snapshots needed)
+    arch-chroot /mnt /bin/bash --noprofile --norc -euo pipefail <<EOF
+
+$(install_desktop)
+EOF
+
+    handle_completion "desktop-only"
+fi
 
 get_password "Enter the password for root user" ROOTPASS
 
@@ -164,7 +277,7 @@ declare -f print_header > /mnt/root/.arch-install-helpers.sh
 
 arch-chroot /mnt \
     /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
-    /bin/bash --noprofile --norc -euo pipefail <<'EOF'
+    /bin/bash --noprofile --norc -euo pipefail <<EOF
 
 source /root/.arch-install-helpers.sh
 
@@ -213,18 +326,18 @@ mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI || error_exit "Failed to download ZFSBootMenu"
 
 # Remove any existing ZFSBootMenu entries to avoid duplicates
-for bootnum in $(efibootmgr | awk -F'[* ]+' '/ZFSBootMenu/ {sub(/^Boot/, "", $1); print $1}'); do
-    efibootmgr -b "$bootnum" -B
+for bootnum in \$(efibootmgr | awk -F'[* ]+' '/ZFSBootMenu/ {sub(/^Boot/, "", \$1); print \$1}'); do
+    efibootmgr -b "\$bootnum" -B
 done
 
 # Create the boot entry
 efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --loader '\EFI\zbm\zfsbootmenu.EFI' \
-    --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
+    --unicode "spl_hostid=\$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
     --verbose >/dev/null
 
 # Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid)" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
+zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=\$(hostid)" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
 
 print_header "Configure mkinitcpio"
 
@@ -297,7 +410,7 @@ print_header "Configure sudoers file"
 # Configure sudo using visudo-safe method
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
 chmod 0440 /etc/sudoers.d/wheel
-
+echo "Sudoers file configured!"
 
 print_header "Create ZFS snapshots before installing desktop environment"
 
@@ -306,47 +419,7 @@ zfs snapshot zroot/ROOT/default@pre-desktop-install
 zfs snapshot zroot/data/home@pre-desktop-install
 echo "ZFS snapshots created: pre-desktop-install"
 
-
-print_header "Install paru AUR helper"
-
-# Create temporary user for building paru
-useradd -m -G wheel -s /bin/bash builder
-echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
-
-# Install paru as builder user
-sudo -u builder bash -c '
-cd /tmp
-git clone https://aur.archlinux.org/paru.git
-cd paru
-makepkg -si --noconfirm
-'
-
-# Clean up builder user
-userdel -r builder
-rm /etc/sudoers.d/builder
-
-
-print_header "Install Niri desktop environment and components"
-
-# Install base packages with pacman
-pacman -S --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty wl-clipboard cliphist cava qt6-multimedia-ffmpeg
-
-# Install AUR packages with paru (run as root for now, will be configured for user later)
-paru -S --noconfirm noctalia-shell dms-shell-bin matugen
-
-# Enable DMS service for user session management
-systemctl --user --global enable dms.service
-
-# Configure Niri to start automatically after TTY login
-mkdir -p /etc/profile.d
-cat > /etc/profile.d/niri-autostart.sh << 'NIRI_EOF'
-# Auto-start Niri on TTY1 login
-if [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
-    exec niri-session
-fi
-NIRI_EOF
-
-chmod +x /etc/profile.d/niri-autostart.sh
+$(install_desktop)
 
 echo "Configuration completed successfully!"
 
@@ -362,25 +435,4 @@ umount -R /mnt || true
 zfs umount -a || true
 zpool export zroot || true
 
-echo ""
-echo "=========================================="
-echo "Installation completed successfully!"
-echo "=========================================="
-echo ""
-echo "IMPORTANT: Before rebooting:"
-echo "1. Remove the installation media"
-echo "2. After reboot, log in via TTY1 - Niri will start automatically"
-echo "3. ZFS snapshots created: pre-desktop-install (for root and home)"
-echo "4. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
-echo ""
-
-# Flush any pending input so accidental earlier keypresses
-# don't get consumed by this final prompt.
-while read -r -t 0; do read -r || true; done
-
-read -r -p "Type REBOOT to reboot: " REBOOT_CONFIRM
-if [ "$REBOOT_CONFIRM" = "REBOOT" ]; then
-    reboot
-else
-    echo "Reboot skipped. You can reboot manually when ready."
-fi
+handle_completion "full"
