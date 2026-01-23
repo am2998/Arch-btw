@@ -1,0 +1,70 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: auto-add-reloader-annotations
+  annotations:
+    policies.kyverno.io/title: Auto-Add Reloader Annotations
+    policies.kyverno.io/category: Other
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/subject: Deployment, StatefulSet, DaemonSet
+    policies.kyverno.io/minversion: 1.6.0
+    policies.kyverno.io/description: >-
+      This policy automatically adds reloader.stakater.com/auto: "true" annotation
+      to Deployments, StatefulSets, and DaemonSets that use ConfigMaps or Secrets
+      but don't already have Reloader annotations. This ensures automatic restart
+      capability without requiring manual annotation by developers.
+spec:
+  background: true
+  rules:
+  - name: add-auto-reloader-annotation
+    match:
+      any:
+      - resources:
+          kinds:
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+          namespaces:
+          - "!kube-system"
+          - "!kube-public"
+          - "!kube-node-lease"
+          - "!kyverno"
+          - "!reloader"
+          - "!monitoring"
+          - "!falco"
+          - "!newrelic"
+          - "!cert-manager"
+          - "!ingress-nginx"
+    preconditions:
+      all:
+      # Only apply if workload uses ConfigMaps or Secrets
+      - key: "{{ 
+          (request.object.spec.template.spec.volumes[?contains(keys(@), 'configMap')] | length(@)) +
+          (request.object.spec.template.spec.volumes[?contains(keys(@), 'secret')] | length(@)) +
+          (request.object.spec.template.spec.containers[].env[?valueFrom.configMapKeyRef] | length(@)) +
+          (request.object.spec.template.spec.containers[].env[?valueFrom.secretKeyRef] | length(@)) +
+          (request.object.spec.template.spec.containers[].envFrom[?configMapRef] | length(@)) +
+          (request.object.spec.template.spec.containers[].envFrom[?secretRef] | length(@))
+        }}"
+        operator: GreaterThan
+        value: 0
+      # Only apply if no Reloader annotations exist
+      - key: "{{ request.object.metadata.annotations.\"reloader.stakater.com/auto\" || '' }}"
+        operator: Equals
+        value: ""
+      - key: "{{ request.object.metadata.annotations.\"configmap.reloader.stakater.com/reload\" || '' }}"
+        operator: Equals
+        value: ""
+      - key: "{{ request.object.metadata.annotations.\"secret.reloader.stakater.com/reload\" || '' }}"
+        operator: Equals
+        value: ""
+      # Don't apply if explicitly exempted
+      - key: "{{ request.object.metadata.annotations.\"reloader.stakater.com/exempt\" || '' }}"
+        operator: NotEquals
+        value: "true"
+    mutate:
+      patchStrategicMerge:
+        metadata:
+          annotations:
+            reloader.stakater.com/auto: "true"
+            +(reloader.stakater.com/auto-added): "{{ request.object.metadata.creationTimestamp }}"
