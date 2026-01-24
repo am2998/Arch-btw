@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-reloader-app
+  annotations:
+    configmap.reloader.stakater.com/reload: "test-config"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-reloader-app
+  template:
+    metadata:
+      labels:
+        app: test-reloader-app
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/config
+      volumes:
+      - name: config
+        configMap:
+          name: test-config
