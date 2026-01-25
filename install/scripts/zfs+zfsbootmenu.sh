@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Arch Linux + ZFS + ZFSBootMenu + Niri Installation Script
-# Optimized and hardened version
+# Arch Linux + ZFS + ZFSBootMenu
 
 set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
@@ -53,115 +52,8 @@ get_password() {
     done
 }
 
-# Desktop installation function
-install_desktop() {
-    cat <<'DESKTOP_INSTALL_EOF'
-
-print_header() {
-    local title="$1"
-    local line="--------------------------------------------------------------------------------------------------------------------------"
-    echo -e "\n\n# ${line}"
-    echo -e "# ${title}"
-    echo -e "# ${line}\n"
-}
-
-error_exit() {
-    echo "ERROR: $1" >&2
-    exit 1
-}
-
-print_header "Create main user account"
-
-# Create the main user account
-useradd -m -G wheel -s /bin/bash "$USERNAME"
-echo "$USERNAME:$USERPASS" | chpasswd
-echo "User $USERNAME created successfully."
-
-print_header "Install paru AUR helper"
-
-# Install paru as the main user
-sudo -u "$USERNAME" bash -c '
-cd /tmp
-git clone https://aur.archlinux.org/paru.git
-cd paru
-makepkg -si --noconfirm
-'
-
-print_header "Install Niri compositor and components"
-
-# Install base packages with pacman
-pacman -S --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty wl-clipboard cliphist cava qt6-multimedia-ffmpeg
-
-# Install AUR packages with paru as the main user
-sudo -u "$USERNAME" paru -S --noconfirm --needed dms-shell-bin matugen
-
-# Enable DMS service for user session management
-systemctl --user --global enable dms.service
-
-# Configure Niri to start automatically after TTY login
-mkdir -p /home/$USERNAME
-cat >> /home/$USERNAME/.bashrc << 'BASHRC_EOF'
-if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" -eq 1 ]; then
-    systemctl --user restart niri.service
-fi
-BASHRC_EOF
-
-chown $USERNAME:$USERNAME /home/$USERNAME/.bashrc
-
-echo "Niri installation completed!"
-
-DESKTOP_INSTALL_EOF
-}
-
-# Completion and reboot handling function
-handle_completion() {
-    echo ""
-    echo "=========================================="
-    echo "Installation completed successfully!"
-    echo "=========================================="
-    echo ""
-    echo "IMPORTANT: Before rebooting:"
-    echo "1. Remove the installation media"
-    echo "2. After reboot, log in via TTY1 - Niri will start automatically"
-    echo "3. ZFS snapshots created: pre-desktop-install (for root and home)"
-    echo "4. Type REBOOT to reboot now (recommended), or anything else to stay in the live environment"
-    echo ""
-    
-    # Flush any pending input so accidental earlier keypresses
-    # don't get consumed by this final prompt.
-    while read -r -t 0; do read -r || true; done
-    
-    read -r -p "Type REBOOT to reboot: " REBOOT_CONFIRM
-    if [ "$REBOOT_CONFIRM" = "REBOOT" ]; then
-        reboot
-    else
-        echo "Reboot skipped. You can reboot manually when ready."
-    fi
-}
-
 echo -e "\n=== Arch Linux ZFS Installation ==="
 echo -e "This script will ERASE all data on the selected disk!\n"
-
-# Check if ZFS datasets exist to determine if should offer desktop-only installation
-if zfs list zroot/ROOT/default &>/dev/null && zfs list zroot/data/home &>/dev/null; then
-    echo -n "Skip to desktop installation only? (y/N): "; read -r SKIP_TO_DESKTOP
-    if [[ "$SKIP_TO_DESKTOP" =~ ^[Yy]$ ]]; then
-        print_header "Skipping to desktop installation"
-        
-        echo -n "Enter the username for the main user: "; read -r USERNAME
-        get_password "Enter the password for user $USERNAME" USERPASS
-        
-        # Jump directly to desktop installation in chroot
-        arch-chroot /mnt \
-            /usr/bin/env USERNAME="$USERNAME" USERPASS="$USERPASS" \
-            /bin/bash --noprofile --norc -euo pipefail <<EOF
-
-$(install_desktop)
-EOF
-
-        exit 0
-    fi
-fi
 
 get_password "Enter the password for root user" ROOTPASS
 
@@ -177,22 +69,6 @@ if lsblk | grep nvme &>/dev/null; then
     echo "NVMe disk detected: $DISK"
 else 
     error_exit "No NVMe drive found."
-fi
-
-echo -e "\nDisk information:"
-lsblk $DISK
-
-print_header "Verify UEFI boot mode (required for efibootmgr / EFI boot entries)"
-
-if [ ! -d /sys/firmware/efi/efivars ]; then
-    error_exit "System is not booted in UEFI mode. Reboot the installer in UEFI mode (not Legacy/CSM) and rerun this script."
-fi
-
-echo -e "\n⚠️  WARNING: All data on $DISK will be DESTROYED!"
-echo -n "Type 'YES' to continue: "; read -r CONFIRM
-if [ "$CONFIRM" != "YES" ]; then
-    echo "Installation cancelled."
-    exit 0
 fi
 
 print_header "Partitioning $DISK"
@@ -221,7 +97,6 @@ echo "ZFS pool created successfully."
 # Dataset layout
 # - zroot/ROOT is a container
 # - zroot/ROOT/default is the boot environment mounted at /
-# - separate datasets for /home and /var improve manageability and snapshots
 zfs create -o mountpoint=none zroot/data || error_exit "Failed to create zroot/data container"
 zfs create -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT container"
 zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/default || error_exit "Failed to create zroot/ROOT/default"
@@ -286,22 +161,17 @@ set +o xtrace || true
 
 echo "Chrooted successfully!"
 
-systemctl enable sshd
-
 print_header "Configure mirrors and Enable Network Manager service"
 
 reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 systemctl enable NetworkManager
 systemctl mask NetworkManager-wait-online.service
 
-
-
 print_header "Configure locale"
 
 localectl set-keymap us
 echo "KEYMAP=us" > /etc/vconsole.conf
 echo "Locale and keymap configured."
-
 
 print_header "Setup ZFS"
 
@@ -342,7 +212,6 @@ print_header "Configure mkinitcpio"
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block zfs filesystems)/' /etc/mkinitcpio.conf
 
 mkinitcpio -p linux-lts
-
 
 print_header "Configure ZRAM"
 
@@ -401,25 +270,12 @@ echo "root:$ROOTPASS" | chpasswd
 
 echo "Root password set."
 
-
-print_header "Configure sudoers file"
-
-echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
-chmod 0440 /etc/sudoers.d/wheel
-echo "Sudoers file configured!"
-
 print_header "Create ZFS snapshots"
 
-zfs snapshot zroot/ROOT/default@pre-desktop-install
-zfs snapshot zroot/data/home@pre-desktop-install
-echo "ZFS snapshots created: pre-desktop-install"
+    zfs snapshot zroot/ROOT/default@base
+    zfs snapshot zroot/data/home@base
+    echo "ZFS base snapshots created"
 
-echo -n "Do you want to install Niri compositor? (Y/n): "; read -r INSTALL_DESKTOP
-if [[ ! "\$INSTALL_DESKTOP" =~ ^[Nn]$ ]]; then
-    $(install_desktop)
-else
-    echo "Desktop installation skipped."
-fi
 
 echo "Configuration completed successfully!"
 
@@ -435,4 +291,10 @@ umount -R /mnt || true
 zfs umount -a || true
 zpool export zroot || true
 
-handle_completion
+while read -r -t 0; do read -r || true; done
+
+    read -r -p "Type R/r to reboot: " REBOOT_CONFIRM
+    if [ "$REBOOT_CONFIRM" = "R" ] || [ "$REBOOT_CONFIRM" = "r" ]; then
+        reboot
+    else
+        echo "Reboot skipped. You can reboot manually when ready."
