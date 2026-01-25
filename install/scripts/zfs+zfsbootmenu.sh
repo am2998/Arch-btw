@@ -119,7 +119,7 @@ mount ${DISK}${PARTITION_1} /mnt/efi || error_exit "Failed to mount EFI partitio
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget nano openssh || error_exit "Failed to install base system (pacstrap)"
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
 
 
 print_header "Generate fstab file"
@@ -251,7 +251,7 @@ echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.loc
 
 
 print_header "Install utilities and Enable services"
-pacman -S --noconfirm net-tools flatpak git man nano
+pacman -S --noconfirm flatpak git man nano
 
 
 print_header "Install audio components"
