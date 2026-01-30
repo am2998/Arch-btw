@@ -19,8 +19,17 @@ RUN pacman -S --noconfirm \
 # Install supervisor via pip
 RUN pip install --break-system-packages supervisor
 
-# Install minimal X11 and VNC for terminal access
-RUN pacman -S --noconfirm tigervnc ghostty xorg-xdpyinfo
+# Install X11, XFCE, and VNC
+RUN pacman -S --noconfirm \
+    tigervnc \
+    xorg-server \
+    xorg-xinit \
+    xorg-xdpyinfo \
+    dbus \
+    thunar \
+    adwaita-icon-theme \
+    xorg-fonts-base \
+    && pacman -Scc --noconfirm
 
 # Install noVNC
 RUN git clone https://github.com/novnc/noVNC.git /usr/share/novnc && \
@@ -52,7 +61,7 @@ autorestart=true
 stderr_logfile=/var/log/supervisor/vnc.err.log
 stdout_logfile=/var/log/supervisor/vnc.out.log
 user=archuser
-environment=HOME="/home/archuser",USER="archuser",XDG_RUNTIME_DIR="/run/user/1000"
+environment=HOME="/home/archuser",USER="archuser",XDG_RUNTIME_DIR="/run/user/1000",DESKTOP_SESSION="xfce",XDG_SESSION_TYPE="x11"
 stopwaitsecs=10
 stopsignal=TERM
 
@@ -92,11 +101,15 @@ done
 
 sleep 2
 
-# Start terminal
-echo "Starting terminal..."
-ghostty --maximized &
+# Start XFCE
+echo "Starting XFCE..."
+export DESKTOP_SESSION=xfce
+export XDG_SESSION_TYPE=x11
 
-echo "Terminal is running. VNC server on port 5900."
+xfce4-session &
+
+echo "XFCE is running. VNC server on port 5900."
+
 wait $VNC_PID
 VNC_EOF
 
