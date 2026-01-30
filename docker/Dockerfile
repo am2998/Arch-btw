@@ -19,27 +19,51 @@ RUN pacman -S --noconfirm \
 # Install supervisor via pip
 RUN pip install --break-system-packages supervisor
 
-# Install X11, XFCE, and VNC
+# Install X11, Cinnamon, and VNC
 RUN pacman -S --noconfirm \
     tigervnc \
     xorg-server \
     xorg-xinit \
     xorg-xdpyinfo \
+    xorg-xrandr \
     dbus \
-    thunar \
+    cinnamon \
+    nemo \
+    ghostty \
+    eza \
+    fzf \
     adwaita-icon-theme \
-    xorg-fonts-base \
+    ttf-meslo-nerd \
+    mesa \
+    mesa-utils \
+    xf86-video-dummy \
     && pacman -Scc --noconfirm
 
 # Install noVNC
 RUN git clone https://github.com/novnc/noVNC.git /usr/share/novnc && \
-    git clone https://github.com/novnc/websockify /usr/share/novnc/utils/websockify && \
-    ln -s /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+    git clone https://github.com/novnc/websockify /usr/share/novnc/utils/websockify
 
 # Create regular user
 RUN useradd -m -G wheel -s /bin/bash archuser && \
     echo "archuser:archuser" | chpasswd && \
     echo "archuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Configure bashrc for archuser with fzf and eza
+RUN printf '# .bashrc\n\
+\n\
+# If not running interactively, do not do anything\n\
+[[ $- != *i* ]] && return\n\
+\n\
+# Aliases\n\
+alias ls="eza -lha --icons --group-directories-first"\n\
+\n\
+# fzf key bindings and completion\n\
+source /usr/share/fzf/key-bindings.bash\n\
+source /usr/share/fzf/completion.bash\n\
+\n\
+# Prompt\n\
+PS1="\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ "\n\
+' > /home/archuser/.bashrc && chown archuser:archuser /home/archuser/.bashrc
 
 USER root
 
@@ -61,7 +85,7 @@ autorestart=true
 stderr_logfile=/var/log/supervisor/vnc.err.log
 stdout_logfile=/var/log/supervisor/vnc.out.log
 user=archuser
-environment=HOME="/home/archuser",USER="archuser",XDG_RUNTIME_DIR="/run/user/1000",DESKTOP_SESSION="xfce",XDG_SESSION_TYPE="x11"
+environment=HOME="/home/archuser",USER="archuser",XDG_RUNTIME_DIR="/run/user/1000",DESKTOP_SESSION="cinnamon",XDG_SESSION_TYPE="x11",LIBGL_ALWAYS_SOFTWARE="1",MUTTER_DEBUG_FORCE_KMS_MODE="simple"
 stopwaitsecs=10
 stopsignal=TERM
 
@@ -74,75 +98,82 @@ stdout_logfile=/var/log/supervisor/novnc.out.log
 stopwaitsecs=10
 SUPERVISOR_EOF
 
-# Create startup script with minimal X11 terminal
-RUN cat > /usr/local/bin/start-vnc.sh << 'VNC_EOF'
-#!/bin/bash
-set -e
-
-export XDG_RUNTIME_DIR=/run/user/1000
-
-echo "Starting Xvnc server with terminal..."
-Xvnc :0 -geometry 1920x1080 -depth 24 -rfbport 5900 -rfbauth /dev/null -SecurityTypes None &
-VNC_PID=$!
-
-# Wait for X server
-export DISPLAY=:0
-for i in {1..30}; do
-    if xdpyinfo -display :0 >/dev/null 2>&1; then
-        echo "X server ready!"
-        break
-    fi
-    if ! kill -0 $VNC_PID 2>/dev/null; then
-        echo "ERROR: Xvnc crashed"
-        exit 1
-    fi
-    sleep 1
-done
-
-sleep 2
-
-# Start XFCE
-echo "Starting XFCE..."
-export DESKTOP_SESSION=xfce
-export XDG_SESSION_TYPE=x11
-
-xfce4-session &
-
-echo "XFCE is running. VNC server on port 5900."
-
-wait $VNC_PID
-VNC_EOF
-
-RUN chmod +x /usr/local/bin/start-vnc.sh
+# Create startup script with dynamic resolution
+RUN printf '#!/bin/bash\n\
+set -e\n\
+\n\
+export XDG_RUNTIME_DIR=/run/user/1000\n\
+\n\
+echo "Starting Xvnc server..."\n\
+Xvnc :0 -geometry 1920x1080 -depth 24 -rfbport 5900 -rfbauth /dev/null \\\n\
+  -SecurityTypes None -AcceptSetDesktopSize=1 -SendCutText=0 -AcceptCutText=0 &\n\
+VNC_PID=$!\n\
+\n\
+export DISPLAY=:0\n\
+for i in {1..30}; do\n\
+    if xdpyinfo -display :0 >/dev/null 2>&1; then\n\
+        echo "X server ready!"\n\
+        break\n\
+    fi\n\
+    if ! kill -0 $VNC_PID 2>/dev/null; then\n\
+        echo "ERROR: Xvnc crashed"\n\
+        exit 1\n\
+    fi\n\
+    sleep 1\n\
+done\n\
+\n\
+sleep 2\n\
+\n\
+echo "Starting D-Bus session..."\n\
+eval $(dbus-launch --sh-syntax)\n\
+export DBUS_SESSION_BUS_ADDRESS\n\
+export DBUS_SESSION_BUS_PID\n\
+\n\
+echo "Starting Cinnamon..."\n\
+export DESKTOP_SESSION=cinnamon\n\
+export XDG_SESSION_TYPE=x11\n\
+export HOME=/home/archuser\n\
+export LIBGL_ALWAYS_SOFTWARE=1\n\
+export MUTTER_DEBUG_FORCE_KMS_MODE=simple\n\
+cd /home/archuser\n\
+\n\
+# Disable hardware acceleration for Cinnamon\n\
+mkdir -p /home/archuser/.config/cinnamon\n\
+echo "[Settings]" > /home/archuser/.config/cinnamon/cinnamon-settings.ini\n\
+echo "disable-all-effects=true" >> /home/archuser/.config/cinnamon/cinnamon-settings.ini\n\
+\n\
+cinnamon-session &\n\
+\n\
+echo "Cinnamon is running. VNC server on port 5900."\n\
+\n\
+wait $VNC_PID\n' > /usr/local/bin/start-vnc.sh && chmod +x /usr/local/bin/start-vnc.sh
 
 # Main startup script
-RUN cat > /usr/local/bin/start.sh << 'START_EOF'
-#!/bin/bash
-set -e
-
-echo "Initializing Arch Linux Terminal Container..."
-
-# Create runtime directory
-mkdir -p /run/user/1000
-chown archuser:archuser /run/user/1000
-chmod 700 /run/user/1000
-
-# Create log directory
-mkdir -p /var/log/supervisor
-chown -R root:root /var/log/supervisor
-
-chown -R archuser:archuser  /home/archuser
-
-echo "Starting supervisord..."
-if command -v supervisord &> /dev/null; then
-    exec supervisord -c /etc/supervisor/supervisord.conf
-else
-    echo "ERROR: supervisord not found"
-    exit 1
-fi
-START_EOF
-
-RUN chmod +x /usr/local/bin/start.sh
+RUN printf '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "Initializing Arch Linux Terminal Container..."\n\
+\n\
+mkdir -p /run/user/1000\n\
+chown archuser:archuser /run/user/1000\n\
+chmod 700 /run/user/1000\n\
+\n\
+mkdir -p /var/log/supervisor\n\
+chown -R root:root /var/log/supervisor\n\
+\n\
+chown -R archuser:archuser /home/archuser\n\
+\n\
+echo "Starting system D-Bus..."\n\
+mkdir -p /run/dbus\n\
+dbus-daemon --system --fork\n\
+\n\
+echo "Starting supervisord..."\n\
+if command -v supervisord &> /dev/null; then\n\
+    exec supervisord -c /etc/supervisor/supervisord.conf\n\
+else\n\
+    echo "ERROR: supervisord not found"\n\
+    exit 1\n\
+fi\n' > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
 
 # Expose noVNC port
 EXPOSE 6080

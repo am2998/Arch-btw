@@ -21,40 +21,27 @@ if [ ! -f "Dockerfile" ]; then
 fi
 
 echo "Building Arch Linux container with:"
-echo "  - Ghostty terminal emulator"
+echo "  - Cinnamon Desktop Environment"
 echo "  - noVNC web interface"
-echo ""
-echo "⚠️  Note: This build will take 10-20 minutes depending on your system."
 echo ""
 
 # Clean up any existing container
 echo "Cleaning up any existing containers..."
-docker rm -f arch 2>/dev/null || true
+docker rm -f arch-container 2>/dev/null || true
 
 echo "Building with Docker..."
-docker build -t arch .
+docker build -t arch-vnc .
 
 echo ""
 echo "Starting container..."
 
-# Try with GPU access first, fall back if it fails
-if docker run -d \
-  --name arch\
+docker run -d \
+  --name arch-container \
+  --hostname archlab \
   -p 6080:6080 \
-  --device /dev/dri:/dev/dri \
   -v arch-home:/home/archuser \
   --shm-size=512m \
-  arch 2>/dev/null; then
-    echo "Container started with GPU acceleration"
-else
-    echo "GPU not available, starting with software rendering..."
-    docker run -d \
-      --name archtest\
-      -p 6080:6080 \
-      -v arch-home:/home/archuser \
-      --shm-size=512m \
-      arch
-fi
+  arch-vnc
 
 echo ""
 echo "================================================"
@@ -67,7 +54,7 @@ echo "Waiting for services to initialize..."
 sleep 5
 echo ""
 echo "Service status:"
-docker exec archsupervisorctl status || echo "Note: Services still starting up..."
+docker exec arch-container supervisorctl status || echo "Note: Services still starting up..."
 
 echo ""
 echo "================================================"
@@ -78,21 +65,19 @@ echo "Web Interface:"
 echo "  → Open browser: http://localhost:6080"
 echo ""
 echo "Shell Access:"
-echo "  → docker exec -it -u archuser archbash"
+echo "  → docker exec -it -u archuser arch-container bash"
 echo ""
 echo "View Logs:"
-echo "  → docker logs -f arch-term"
-echo "  → docker exec archtail -f /var/log/supervisor/wayland.err.log"
-echo "  → docker exec archtail -f /var/log/supervisor/novnc.err.log"
+echo "  → docker logs -f arch-container"
 echo ""
 echo "Check Status:"
-echo "  → docker exec archsupervisorctl status"
+echo "  → docker exec arch-container supervisorctl status"
 echo ""
 echo "Stop Container:"
-echo "  → docker stop arch-term"
+echo "  → docker stop arch-container"
 echo ""
 echo "Remove Container:"
-echo "  → docker rm arch-term"
+echo "  → docker rm arch-container"
 echo ""
 echo "================================================"
 echo "Troubleshooting"
@@ -101,16 +86,16 @@ echo ""
 echo "If you see a black screen:"
 echo "  1. Wait 30-60 seconds for services to fully start"
 echo "  2. Refresh the browser page"
-echo "  3. Check logs: docker logs arch-term"
+echo "  3. Check logs: docker logs arch-container"
 echo ""
 echo "If services fail to start:"
-echo "  → docker exec archsupervisorctl restart all"
+echo "  → docker exec arch-container supervisorctl restart all"
 echo ""
 echo "Default credentials:"
 echo "  Username: archuser"
 echo "  Password: archuser"
 echo ""
-echo "💡 Tip: The X server needs time to initialize."
-echo "    Give it 1-2 minutes on first start."
+echo "💡 Tip: The desktop needs time to initialize."
+echo "    Give it a few seconds on first start."
 echo ""
 echo "Happy hacking! 🚀"
