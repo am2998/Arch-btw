@@ -30,6 +30,7 @@ spec:
           - kube-system
           - kyverno
           - monitoring
+          - reloader
     validate:
       message: "Le seguenti label sono obbligatorie: app.kubernetes.io/name, app.kubernetes.io/version, app.kubernetes.io/component"
       pattern:

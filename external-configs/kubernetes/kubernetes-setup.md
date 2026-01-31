@@ -997,5 +997,5 @@ sudo rm -rf /var/lib/etcd/
 ```
 
 ### K3S
-curl -sfL https://get.k3s.io | sh -s - --cluster-init --secrets-encryption --write-kubeconfig-mode 644
-
+curl -sfL https://get.k3s.io | sh -s - --cluster-init --secrets-encryption
+echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> ~/.bashrc && source .bashrc

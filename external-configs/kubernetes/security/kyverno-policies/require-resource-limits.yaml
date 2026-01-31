@@ -26,6 +26,7 @@ spec:
           - kube-system
           - kyverno
           - monitoring
+          - reloader
     validate:
       message: "Tutti i container devono avere limiti di CPU e memoria definiti"
       pattern:
