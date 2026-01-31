@@ -289,7 +289,7 @@ helm upgrade --install falco falcosecurity/falco \
     --set falco.httpOutput.enabled=true \
     --set falco.jsonOutput=true \
     --set falco.logLevel=info \
-    --set falco.syscallEventDrops.actions="log,alert" \
+    --set falco.syscallEventDrops.actions="log\,alert" \
     --set falco.priority=debug \
     --set resources.requests.cpu=100m \
     --set resources.requests.memory=512Mi \
@@ -995,3 +995,7 @@ sudo rm -rf /etc/kubernetes/
 sudo rm -rf ~/.kube/
 sudo rm -rf /var/lib/etcd/
 ```
+
+### K3S
+curl -sfL https://get.k3s.io | sh -s - --cluster-init --secrets-encryption --write-kubeconfig-mode 644
+
