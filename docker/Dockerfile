@@ -6,18 +6,10 @@ RUN pacman-key --init && \
     pacman -Sy --noconfirm archlinux-keyring && \
     pacman -Syu --noconfirm
 
-# Install base packages
-RUN pacman -S --noconfirm sudo git man \
-    && pacman -Scc --noconfirm
-
-# Install Python
-RUN pacman -S --noconfirm \
-    python \
-    python-pip \
-    && pacman -Scc --noconfirm
-
-# Install supervisor via pip
-RUN pip install --break-system-packages supervisor
+# Install base packages, Python, and supervisor
+RUN pacman -S --noconfirm sudo git man python python-pip && \
+    pacman -Scc --noconfirm && \
+    pip install --break-system-packages supervisor
 
 # Install X11, Cinnamon, and VNC
 RUN pacman -S --noconfirm \
@@ -39,50 +31,23 @@ RUN pacman -S --noconfirm \
     xf86-video-dummy \
     && pacman -Scc --noconfirm
 
-# Install noVNC
+# Install noVNC and create custom index
 RUN git clone https://github.com/novnc/noVNC.git /usr/share/novnc && \
-    git clone https://github.com/novnc/websockify /usr/share/novnc/utils/websockify
+    git clone https://github.com/novnc/websockify /usr/share/novnc/utils/websockify && \
+    printf '<!DOCTYPE html>\n<html>\n<head>\n    <meta http-equiv="refresh" content="0; url=vnc.html?resize=remote" />\n</head>\n<body>\n    <p>Redirecting to VNC...</p>\n</body>\n</html>\n' > /usr/share/novnc/index.html
 
-# Create custom index with remote resizing enabled
-RUN printf '<!DOCTYPE html>\n\
-<html>\n\
-<head>\n\
-    <meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=remote" />\n\
-</head>\n\
-<body>\n\
-    <p>Redirecting to VNC...</p>\n\
-</body>\n\
-</html>\n' > /usr/share/novnc/index.html
-
-# Create regular user
+# Create user and configure bashrc
 RUN useradd -m -G wheel -s /bin/bash archuser && \
     echo "archuser:archuser" | chpasswd && \
-    echo "archuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-
-# Configure bashrc for archuser with fzf and eza
-RUN printf '# .bashrc\n\
-\n\
-# If not running interactively, do not do anything\n\
-[[ $- != *i* ]] && return\n\
-\n\
-# Aliases\n\
-alias ls="eza -lha --icons --group-directories-first"\n\
-\n\
-# fzf key bindings and completion\n\
-source /usr/share/fzf/key-bindings.bash\n\
-source /usr/share/fzf/completion.bash\n\
-\n\
-# Prompt\n\
-PS1="\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ "\n\
-' > /home/archuser/.bashrc && chown archuser:archuser /home/archuser/.bashrc
+    echo "archuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    printf '# .bashrc\n\n[[ $- != *i* ]] && return\n\nalias ls="eza -lha --icons --group-directories-first"\n\nsource /usr/share/fzf/key-bindings.bash\nsource /usr/share/fzf/completion.bash\n\nPS1="\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ "\n' > /home/archuser/.bashrc && \
+    chown archuser:archuser /home/archuser/.bashrc
 
 USER root
 
-# Setup directories
-RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
-
-# Create supervisord configuration
-RUN cat > /etc/supervisor/supervisord.conf << 'SUPERVISOR_EOF'
+# Setup supervisor directories and configuration
+RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor && \
+    cat > /etc/supervisor/supervisord.conf << 'SUPERVISOR_EOF'
 [supervisord]
 nodaemon=true
 user=root
@@ -115,9 +80,15 @@ set -e\n\
 \n\
 export XDG_RUNTIME_DIR=/run/user/1000\n\
 \n\
+echo "Setting up VNC password..."\n\
+mkdir -p /home/archuser/.vnc\n\
+echo "archuser" | vncpasswd -f > /home/archuser/.vnc/passwd\n\
+chmod 600 /home/archuser/.vnc/passwd\n\
+chown -R archuser:archuser /home/archuser/.vnc\n\
+\n\
 echo "Starting Xvnc server..."\n\
-Xvnc :0 -geometry 1920x1080 -depth 24 -rfbport 5900 -rfbauth /dev/null \\\n\
-  -SecurityTypes None -AcceptSetDesktopSize=1 -SendCutText=0 -AcceptCutText=0 &\n\
+Xvnc :0 -geometry 1920x1080 -depth 24 -rfbport 5900 -rfbauth /home/archuser/.vnc/passwd \\\n\
+  -SecurityTypes VncAuth -AcceptSetDesktopSize=1 -SendCutText=0 -AcceptCutText=0 &\n\
 VNC_PID=$!\n\
 \n\
 export DISPLAY=:0\n\
