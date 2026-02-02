@@ -43,6 +43,17 @@ RUN pacman -S --noconfirm \
 RUN git clone https://github.com/novnc/noVNC.git /usr/share/novnc && \
     git clone https://github.com/novnc/websockify /usr/share/novnc/utils/websockify
 
+# Create custom index with remote resizing enabled
+RUN printf '<!DOCTYPE html>\n\
+<html>\n\
+<head>\n\
+    <meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=remote" />\n\
+</head>\n\
+<body>\n\
+    <p>Redirecting to VNC...</p>\n\
+</body>\n\
+</html>\n' > /usr/share/novnc/index.html
+
 # Create regular user
 RUN useradd -m -G wheel -s /bin/bash archuser && \
     echo "archuser:archuser" | chpasswd && \
