@@ -997,5 +997,11 @@ sudo rm -rf /var/lib/etcd/
 ```
 
 ### K3S
-curl -sfL https://get.k3s.io | sh -s - --cluster-init --secrets-encryption
+curl -sfL https://get.k3s.io | sh -s - \
+  --cluster-init \
+  --secrets-encryption \
+  --etcd-snapshot-schedule-cron="0 */6 * * *" \
+  --etcd-snapshot-retention=10 \
+  --etcd-snapshot-dir=/var/lib/rancher/k3s/server/db/snapshots
+  
 echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> ~/.bashrc && source .bashrc
