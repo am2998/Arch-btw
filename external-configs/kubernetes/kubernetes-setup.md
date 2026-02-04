@@ -1007,7 +1007,7 @@ curl -sfl https://get.k3s.io | sh -s - \
   --disable-network-policy \
   --write-kubeconfig-mode 644
 
-curl -sSL https://github.com/cilium/cilium-cli/releases/download/v0.19.0/cilium-linux-amd64.tar.gz
+curl -sSl https://github.com/cilium/cilium-cli/releases/download/v0.19.0/cilium-linux-amd64.tar.gz
 cilium install --version 1.18.6 --set=ipam.operator.clusterpoolipv4podcidrlist="10.42.0.0/16"
 cilium status --wait
 cilium connectivity test

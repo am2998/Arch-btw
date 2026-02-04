@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: immich-redis
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: redis
+    targetRevision: 24.1.3
+    helm:
+      releaseName: immich-redis
+      values: |
+        global:
+          storageClass: standard
+        architecture: standalone
+        persistence:
+          enabled: true
+          size: 5Gi
+        auth:
+          password: immichredispassword
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: immich
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
