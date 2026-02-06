@@ -5,6 +5,14 @@
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
+try:
+    from ...utils.common import is_safe_zfs_token
+except Exception:
+    try:
+        from utils.common import is_safe_zfs_token
+    except Exception:
+        def is_safe_zfs_token(value):
+            return bool(value and isinstance(value, str))
 
 class MaintenanceSettingsTab:
     """System maintenance settings tab for pacman integration, system maintenance, and backup"""
@@ -345,6 +353,9 @@ class MaintenanceSettingsTab:
         pool_name = self.external_pool_entry.get_text().strip()
         if not pool_name:
             self._show_message_dialog("Error", "Please enter a pool name to test.")
+            return
+        if not is_safe_zfs_token(pool_name):
+            self._show_message_dialog("Error", "Invalid pool name format.")
             return
         
         # Test if the pool exists

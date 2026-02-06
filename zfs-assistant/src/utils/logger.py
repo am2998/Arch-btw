@@ -83,7 +83,12 @@ class ZFSLogger:
         
         # File handler for main log
         if not self.python_logger.handlers:
-            file_handler = logging.FileHandler(self.log_file)
+            try:
+                file_handler = logging.FileHandler(self.log_file)
+            except Exception:
+                fallback_log = Path("/tmp/zfs-assistant.log")
+                self.log_file = fallback_log
+                file_handler = logging.FileHandler(self.log_file)
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(formatter)
             self.python_logger.addHandler(file_handler)
@@ -303,6 +308,18 @@ Duration: {duration}
                 if not success and error:
                     message += f" - Error: {error}"
                 self.log_essential_message(level, message)
+
+    def log_backup_operation(self, dataset: str, snapshot_name: str, target_pool: str,
+                             backup_type: str, success: bool, details: dict = None):
+        """Legacy compatibility method for backup operation logging."""
+        if self.current_operation:
+            level = LogLevel.SUCCESS if success else LogLevel.ERROR
+            message = (
+                f"Backup {backup_type}: {dataset}@{snapshot_name} -> {target_pool}"
+            )
+            if not success and details and details.get("error"):
+                message += f" - Error: {details['error']}"
+            self.log_essential_message(level, message)
 
 # Global logger instance
 _logger_instance: Optional[ZFSLogger] = None

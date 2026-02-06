@@ -14,6 +14,7 @@ try:
         OperationType, get_logger,
         log_info, log_error, log_success, log_warning
     )
+    from ..utils.common import is_safe_zfs_token
 except ImportError:
     import sys
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +27,7 @@ except ImportError:
         OperationType, get_logger,
         log_info, log_error, log_success, log_warning
     )
+    from utils.common import is_safe_zfs_token
 
 
 class ZFSBackup:
@@ -33,14 +35,19 @@ class ZFSBackup:
     ZFS backup operations including send/receive and incremental backups.
     """
     
-    def __init__(self, privilege_manager, config):
+    def __init__(self, privilege_manager, config, zfs_core=None):
         self.logger = get_logger()
         self.privilege_manager = privilege_manager
         self.config = config
+        self.zfs_core = zfs_core
 
     def update_config(self, config: dict):
         """Update configuration reference when settings are saved"""
         self.config = config
+
+    def set_zfs_core(self, zfs_core):
+        """Inject ZFS core dependency for snapshot lookups."""
+        self.zfs_core = zfs_core
     
     def send_snapshot(self, snapshot_full_name: str, target_pool: str, 
                      incremental_snapshot: Optional[str] = None) -> Tuple[bool, str]:
@@ -56,6 +63,13 @@ class ZFSBackup:
             (success, message) tuple
         """
         try:
+            if not is_safe_zfs_token(snapshot_full_name) or '@' not in snapshot_full_name:
+                return False, "Invalid snapshot identifier"
+            if not is_safe_zfs_token(target_pool):
+                return False, "Invalid target pool name"
+            if incremental_snapshot and not is_safe_zfs_token(incremental_snapshot):
+                return False, "Invalid incremental snapshot identifier"
+
             dataset, snapshot_name = snapshot_full_name.split('@', 1)
             
             backup_type = "incremental" if incremental_snapshot else "full"
@@ -90,7 +104,7 @@ class ZFSBackup:
             self.logger.log_system_command(' '.join(receive_cmd), True)
             
             # Check for required privileges
-            auth_success, _ = privilege_manager.run_privileged_command(['true'])
+            auth_success, _ = self.privilege_manager.run_privileged_command(['true'])
             if not auth_success:
                 error_msg = "Failed to obtain administrative privileges for ZFS send/receive operation"
                 log_error(error_msg)
@@ -186,6 +200,9 @@ class ZFSBackup:
             The name of the latest common snapshot, or None if no common snapshots exist
         """
         try:
+            if self.zfs_core is None:
+                return None
+
             # Get snapshots from source dataset
             source_snapshots = self.zfs_core.get_snapshots(source_dataset)
             source_snapshot_names = {snapshot.name: snapshot for snapshot in source_snapshots}
@@ -228,6 +245,13 @@ class ZFSBackup:
             (success, message) tuple
         """
         try:
+            if self.zfs_core is None:
+                return False, "Backup module is not initialized with ZFS core dependency"
+            if not is_safe_zfs_token(dataset):
+                return False, "Invalid source dataset name"
+            if not is_safe_zfs_token(target_pool):
+                return False, "Invalid target pool name"
+
             # Check if target pool exists
             try:
                 subprocess.run(['zfs', 'list', target_pool], 
@@ -364,3 +388,35 @@ class ZFSBackup:
             error_msg = f"Error verifying backup integrity: {str(e)}"
             log_error(error_msg)
             return False, error_msg
+
+    def run_scheduled_backup(self) -> Tuple[bool, str]:
+        """Run configured external backups for managed datasets."""
+        try:
+            if not self.config.get("external_backup_enabled", False):
+                return True, "External backup is disabled"
+
+            target_pool = self.config.get("external_pool_name", "").strip()
+            if not target_pool:
+                return False, "External backup is enabled but no target pool is configured"
+
+            datasets = self.config.get("datasets", [])
+            if not datasets:
+                return False, "No datasets configured for scheduled backup"
+
+            success_count = 0
+            failures = []
+            for dataset in datasets:
+                success, message = self.perform_backup(dataset, target_pool)
+                if success:
+                    success_count += 1
+                else:
+                    failures.append(f"{dataset}: {message}")
+
+            if failures:
+                return False, (
+                    f"Scheduled backup completed with partial failures "
+                    f"({success_count}/{len(datasets)}): {'; '.join(failures)}"
+                )
+            return True, f"Scheduled backup completed successfully for {success_count} datasets"
+        except Exception as e:
+            return False, f"Error running scheduled backup: {str(e)}"

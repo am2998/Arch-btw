@@ -15,6 +15,10 @@ try:
         log_info, log_error, log_success, log_warning
     )
     from ..utils.common import get_timestamp
+    from ..utils.common import (
+        is_safe_zfs_token, is_safe_snapshot_prefix,
+        is_safe_arc_parameter, is_safe_integer
+    )
 except ImportError:
     import sys
     import os
@@ -29,6 +33,10 @@ except ImportError:
         log_info, log_error, log_success, log_warning
     )
     from utils.common import get_timestamp
+    from utils.common import (
+        is_safe_zfs_token, is_safe_snapshot_prefix,
+        is_safe_arc_parameter, is_safe_integer
+    )
 
 
 class ZFSCore:
@@ -272,8 +280,13 @@ class ZFSCore:
             (success, message) tuple
         """
         try:
+            if not is_safe_zfs_token(dataset):
+                return False, "Invalid dataset name"
+
             if not name:
                 name = f"zfs-assistant-{get_timestamp()}"
+            elif not is_safe_zfs_token(name):
+                return False, "Invalid snapshot name"
             
             snapshot_full_name = f"{dataset}@{name}"
             
@@ -334,6 +347,9 @@ class ZFSCore:
             (success, message) tuple
         """
         try:
+            if not is_safe_zfs_token(snapshot_full_name) or '@' not in snapshot_full_name:
+                return False, "Invalid snapshot identifier"
+
             dataset, snapshot_name = snapshot_full_name.split('@', 1)
             
             log_info(f"Deleting snapshot: {snapshot_full_name}", {
@@ -393,6 +409,9 @@ class ZFSCore:
             (success, message) tuple
         """
         try:
+            if not is_safe_zfs_token(snapshot_full_name) or '@' not in snapshot_full_name:
+                return False, "Invalid snapshot identifier"
+
             dataset, snapshot_name = snapshot_full_name.split('@', 1)
             
             log_info(f"Rolling back to snapshot: {snapshot_full_name}", {
@@ -460,6 +479,11 @@ class ZFSCore:
             (success, message) tuple
         """
         try:
+            if not is_safe_zfs_token(snapshot_full_name) or '@' not in snapshot_full_name:
+                return False, "Invalid snapshot identifier"
+            if not is_safe_zfs_token(target_name):
+                return False, "Invalid target dataset name"
+
             dataset, snapshot_name = snapshot_full_name.split('@', 1)
             
             log_info(f"Cloning snapshot: {snapshot_full_name} to {target_name}", {
@@ -731,6 +755,11 @@ class ZFSCore:
             # Generate snapshot name
             timestamp = get_timestamp()
             prefix = self.config.get("prefix", "zfs-assistant")
+            if not is_safe_snapshot_prefix(prefix):
+                error_msg = f"Invalid snapshot prefix in config: {prefix}"
+                self.logger.log_essential_message(LogLevel.ERROR, error_msg)
+                self.logger.end_scheduled_operation(False, error_msg)
+                return False, error_msg
             snapshot_name = f"{prefix}-{interval}-{timestamp}"
             
             # Log essential details
@@ -739,6 +768,11 @@ class ZFSCore:
             # Create batch snapshots
             batch_commands = []
             for dataset in datasets:
+                if not is_safe_zfs_token(dataset):
+                    error_msg = f"Invalid dataset in config: {dataset}"
+                    self.logger.log_essential_message(LogLevel.ERROR, error_msg)
+                    self.logger.end_scheduled_operation(False, error_msg)
+                    return False, error_msg
                 snapshot_full_name = f"{dataset}@{snapshot_name}"
                 batch_commands.append(['zfs', 'snapshot', snapshot_full_name])
             
@@ -947,15 +981,19 @@ class ZFSCore:
         """
         try:
             log_info(f"Setting ARC tunable: {parameter} = {value}")
+            if not is_safe_arc_parameter(parameter):
+                return False, "Invalid ARC parameter name"
+            if not is_safe_integer(value):
+                return False, "Invalid ARC parameter value (integer expected)"
             
             param_path = f"/sys/module/zfs/parameters/{parameter}"
             if not os.path.exists(param_path):
                 return False, f"Parameter {parameter} not found"
             
-            # Use privilege manager to write the new value
+            # Use tee (without shell) to write the new value.
             success, result = self.privilege_manager.run_privileged_command([
-                'sh', '-c', f'echo "{value}" > {param_path}'
-            ])
+                'tee', param_path
+            ], input_text=f"{value.strip()}\n")
             
             if not success:
                 log_error(f"Failed to set ARC tunable {parameter}: {result}")

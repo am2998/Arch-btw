@@ -55,7 +55,12 @@ class PrivilegeManager:
             self._session_active = False
             return False
     
-    def run_privileged_command(self, command: List[str], ignore_errors: bool = False) -> Tuple[bool, str]:
+    def run_privileged_command(
+        self,
+        command: List[str],
+        ignore_errors: bool = False,
+        input_text: Optional[str] = None
+    ) -> Tuple[bool, str]:
         """
         Run a single privileged command.
         
@@ -71,7 +76,8 @@ class PrivilegeManager:
             if os.geteuid() == 0:
                 log_info(f"Running command as root: {' '.join(command)}")
                 result = subprocess.run(command, 
-                                      check=True, capture_output=True, text=True, timeout=60)
+                                      check=True, capture_output=True, text=True, timeout=60,
+                                      input=input_text)
                 log_success(f"Command completed successfully: {' '.join(command)}")
                 return True, result.stdout.strip()
             
@@ -85,7 +91,8 @@ class PrivilegeManager:
             log_info(f"Running privileged command: {' '.join(command)}")
             
             result = subprocess.run(full_command, 
-                                  check=True, capture_output=True, text=True, timeout=60)
+                                  check=True, capture_output=True, text=True, timeout=60,
+                                  input=input_text)
             
             log_success(f"Command completed successfully: {' '.join(command)}")
             return True, result.stdout.strip()
@@ -303,6 +310,17 @@ class PrivilegeManager:
                 'error': error_msg
             })
             return False, error_msg
+
+    # Backward-compatibility aliases used by legacy wrappers.
+    def run_pkexec_command(self, cmd) -> Tuple[bool, str]:
+        """Compatibility wrapper around run_privileged_command."""
+        if isinstance(cmd, list):
+            return self.run_privileged_command(cmd)
+        return False, "Invalid command format: expected list of arguments"
+
+    def run_batch_pkexec_commands(self, commands: List[List[str]]) -> Tuple[bool, str]:
+        """Compatibility wrapper around run_batch_privileged_commands."""
+        return self.run_batch_privileged_commands(commands)
     
     def cleanup_session(self):
         """Clean up the privilege session."""

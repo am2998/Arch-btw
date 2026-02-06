@@ -5,6 +5,14 @@
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
+try:
+    from ...utils.common import is_safe_snapshot_prefix
+except Exception:
+    try:
+        from utils.common import is_safe_snapshot_prefix
+    except Exception:
+        def is_safe_snapshot_prefix(value):
+            return bool(value and isinstance(value, str))
 
 class ScheduleSettingsTab:
     """Schedule settings tab for snapshot scheduling and retention"""
@@ -705,7 +713,10 @@ class ScheduleSettingsTab:
         config["datasets"] = managed_datasets
         
         # Update prefix
-        config["prefix"] = self.prefix_entry.get_text().strip()
+        prefix_value = self.prefix_entry.get_text().strip()
+        if not is_safe_snapshot_prefix(prefix_value):
+            prefix_value = "zfs-assistant"
+        config["prefix"] = prefix_value
         
         # Update snapshot name format
         selected = self.format_combo.get_selected()

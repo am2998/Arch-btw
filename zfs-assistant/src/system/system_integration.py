@@ -650,27 +650,45 @@ def create_pre_pacman_snapshot():
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
         prefix = config.get("prefix", "zfs-assistant")
+        unsafe_chars = set(" \t\r\n'\"`;$|&<>\\")
+        if not prefix or any(ch in unsafe_chars for ch in prefix):
+            error_msg = f"Invalid snapshot prefix in configuration: {prefix!r}"
+            if logger:
+                logger.log_error("Invalid prefix", {'prefix': prefix})
+                logger.log_operation_end(OperationType.PACMAN_INTEGRATION, False, error_message=error_msg)
+            else:
+                log_message("ERROR", error_msg)
+                log_operation_end("PACMAN_INTEGRATION", False, error_message=error_msg)
+            sys.exit(1)
         
-        # Create batch script for all snapshots
-        batch_commands = []
-        for dataset in datasets:
-            snapshot_name = f"{dataset}@{prefix}-pkgop-{timestamp}"
-            batch_commands.append(['zfs', 'snapshot', snapshot_name])
-        
-        if batch_commands:            # Execute all snapshots using a single pkexec session
-            script_lines = ["#!/bin/bash", "set -e"]
-            for dataset in datasets:
-                snapshot_name = f"{dataset}@{prefix}-pkgop-{timestamp}"
-                script_lines.append(f"zfs snapshot '{snapshot_name}'")
-            
-            script_content = '\\n'.join(script_lines)
-            
+        if datasets:
             try:
-                # Esegui con privilegi (necessario per i comandi zfs)
-                result = subprocess.run(['pkexec', 'bash', '-c', script_content], 
-                                      check=True, capture_output=True, text=True)
-                
-                success_count = len(datasets)
+                success_count = 0
+                failures = []
+                for dataset in datasets:
+                    if not dataset or any(ch in unsafe_chars for ch in dataset):
+                        failures.append(f"invalid dataset name: {dataset!r}")
+                        continue
+                    snapshot_name = f"{dataset}@{prefix}-pkgop-{timestamp}"
+                    try:
+                        subprocess.run(['zfs', 'snapshot', snapshot_name],
+                                       check=True, capture_output=True, text=True)
+                        success_count += 1
+                    except subprocess.CalledProcessError as snap_err:
+                        failures.append(
+                            f"{snapshot_name}: {snap_err.stderr if snap_err.stderr else str(snap_err)}"
+                        )
+
+                if failures:
+                    error_msg = f"Created {success_count}/{len(datasets)} snapshots. Errors: {'; '.join(failures)}"
+                    if logger:
+                        logger.log_error("Pacman hook snapshot creation failed", {'error': error_msg})
+                        logger.log_operation_end(OperationType.PACMAN_INTEGRATION, False, error_message=error_msg)
+                    else:
+                        log_message("ERROR", error_msg)
+                        log_operation_end("PACMAN_INTEGRATION", False, error_message=error_msg)
+                    sys.exit(1)
+
                 if logger:
                     for dataset in datasets:
                         snapshot_name = f"{prefix}-pkgop-{timestamp}"
@@ -911,6 +929,16 @@ def create_scheduled_snapshot(interval):
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
         prefix = config.get("prefix", "zfs-assistant")
+        unsafe_chars = set(" \t\r\n'\"`;$|&<>\\")
+        if not prefix or any(ch in unsafe_chars for ch in prefix):
+            error_msg = f"Invalid snapshot prefix in configuration: {prefix!r}"
+            if logger:
+                logger.log_essential_message(LogLevel.ERROR, error_msg)
+                logger.end_scheduled_operation(False, error_msg)
+            else:
+                log_message("ERROR", error_msg)
+                log_operation_end(False, error_msg)
+            sys.exit(1)
         
         # Check system maintenance configuration
         update_snapshots = config.get("update_snapshots", "disabled")
@@ -954,6 +982,10 @@ def create_scheduled_snapshot(interval):
             errors = []
             
             for dataset in datasets:
+                if not dataset or any(ch in unsafe_chars for ch in dataset):
+                    error_msg = f"Invalid dataset name in configuration: {dataset!r}"
+                    errors.append(error_msg)
+                    continue
                 snapshot_name = f"{dataset}@{prefix}-{interval}-{timestamp}"
                 
                 try:

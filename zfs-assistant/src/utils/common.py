@@ -5,6 +5,7 @@
 import os
 import subprocess
 import datetime
+import re
 
 # Application constants
 APP_NAME = "ZFS Snapshot Assistant"
@@ -50,6 +51,13 @@ PACMAN_HOOK_PATH = "/etc/pacman.d/hooks/00-zfs-snapshot.hook"
 SYSTEMD_SCRIPT_PATH = "/usr/local/bin/zfs-assistant-systemd.py"
 PACMAN_SCRIPT_PATH = "/usr/local/bin/zfs-assistant-pacman-hook.py"
 
+# Security validation helpers
+_DISALLOWED_SHELL_CHARS = set(" \t\r\n'\"`;$|&<>\\")
+_SAFE_ZFS_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:/+-]+$")
+_SAFE_PREFIX_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_ARC_PARAM_RE = re.compile(r"^zfs_[A-Za-z0-9_]+$")
+_SAFE_INT_RE = re.compile(r"^-?[0-9]+$")
+
 # Utility functions
 def run_command(cmd, capture_output=True, check=True):
     """Run a shell command and return the result"""
@@ -69,3 +77,27 @@ def run_command(cmd, capture_output=True, check=True):
 def get_timestamp():
     """Get current timestamp formatted for filenames"""
     return datetime.datetime.now().strftime("%Y%m%d-%H%M")
+
+def is_safe_zfs_token(value: str) -> bool:
+    """Allowlist validator for dataset/pool/snapshot tokens."""
+    if not value or not isinstance(value, str):
+        return False
+    if any(ch in _DISALLOWED_SHELL_CHARS for ch in value):
+        return False
+    return bool(_SAFE_ZFS_TOKEN_RE.match(value))
+
+def is_safe_snapshot_prefix(value: str) -> bool:
+    """Allowlist validator for snapshot prefix from configuration."""
+    if not value or not isinstance(value, str):
+        return False
+    if any(ch in _DISALLOWED_SHELL_CHARS for ch in value):
+        return False
+    return bool(_SAFE_PREFIX_RE.match(value))
+
+def is_safe_arc_parameter(value: str) -> bool:
+    """Allowlist validator for ARC tunable parameter names."""
+    return bool(value and isinstance(value, str) and _SAFE_ARC_PARAM_RE.match(value))
+
+def is_safe_integer(value: str) -> bool:
+    """Strict integer validator used for sysfs tunables."""
+    return bool(value and isinstance(value, str) and _SAFE_INT_RE.match(value.strip()))

@@ -8,7 +8,7 @@ from typing import Tuple, List, Dict, Any
 # Handle imports for both relative and direct execution
 try:
     from ..utils.logger import (
-        OperationType, get_logger,
+        OperationType, LogLevel, get_logger,
         log_info, log_error, log_success, log_warning
     )
 except ImportError:
@@ -20,7 +20,7 @@ except ImportError:
         sys.path.insert(0, parent_dir)
     
     from utils.logger import (
-        OperationType, get_logger,
+        OperationType, LogLevel, get_logger,
         log_info, log_error, log_success, log_warning
     )
 
@@ -36,6 +36,33 @@ class SystemMaintenance:
     def update_config(self, config: dict):
         """Update configuration reference when settings are saved"""
         self.config = config
+
+    def create_system_update_snapshot(self, snapshot_type: str = "sysupdate") -> Tuple[bool, str]:
+        """
+        Create a pre-update snapshot for all configured datasets in one batch.
+
+        Args:
+            snapshot_type: Label used in snapshot naming.
+
+        Returns:
+            (success, message) tuple
+        """
+        try:
+            datasets = self.config.get("datasets", [])
+            if not datasets:
+                return False, "No datasets configured for system update snapshot"
+
+            safe_type = (snapshot_type or "sysupdate").strip().replace(" ", "-")
+            safe_type = "".join(ch for ch in safe_type if ch.isalnum() or ch in ("-", "_"))
+            if not safe_type:
+                safe_type = "sysupdate"
+
+            snapshot_name = f"zfs-assistant-{safe_type}-{self._get_timestamp()}"
+            from .zfs_core import ZFSCore
+            zfs_core = ZFSCore(self.privilege_manager, self.config)
+            return zfs_core.create_batch_snapshots(datasets, snapshot_name)
+        except Exception as e:
+            return False, f"Error creating system update snapshot: {str(e)}"
     
     def run_system_update(self) -> Tuple[bool, str]:
         """

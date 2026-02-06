@@ -99,7 +99,7 @@ class ZFSAssistant:
         # Initialize specialized modules
         self.privilege_manager = PrivilegeManager()
         self.zfs_core = ZFSCore(self.privilege_manager, self.config)
-        self.zfs_backup = ZFSBackup(self.privilege_manager, self.config)
+        self.zfs_backup = ZFSBackup(self.privilege_manager, self.config, self.zfs_core)
         self.system_integration = SystemIntegration(self.privilege_manager, self.config)
         self.system_maintenance = SystemMaintenance(self.privilege_manager, self.config)
         
@@ -272,9 +272,45 @@ class ZFSAssistant:
         """Clone a ZFS snapshot to a new dataset"""
         return self.zfs_core.clone_snapshot(snapshot_full_name, target_name)
     
-    def cleanup_snapshots(self):
-        """Clean up snapshots based on retention policy"""
-        return self.zfs_core.cleanup_snapshots()
+    def cleanup_snapshots(self, dataset=None, retention_policy=None):
+        """Clean up snapshots using explicit or config-derived retention policy."""
+        try:
+            policy = retention_policy
+            if policy is None:
+                cfg_retention = self.config.get("snapshot_retention", {})
+                keep_count = sum(
+                    int(cfg_retention.get(k, 0))
+                    for k in ("daily", "weekly", "monthly")
+                    if isinstance(cfg_retention.get(k, 0), int)
+                )
+                if keep_count <= 0:
+                    keep_count = 10
+                policy = {"keep_count": keep_count, "max_age_days": 30}
+
+            if dataset:
+                return self.zfs_core.cleanup_snapshots(dataset, policy)
+
+            datasets = self.config.get("datasets", [])
+            if not datasets:
+                return True, "No datasets configured for cleanup"
+
+            failures = []
+            success_count = 0
+            for ds in datasets:
+                success, message = self.zfs_core.cleanup_snapshots(ds, policy)
+                if success:
+                    success_count += 1
+                else:
+                    failures.append(f"{ds}: {message}")
+
+            if failures:
+                return False, (
+                    f"Cleanup completed with partial failures "
+                    f"({success_count}/{len(datasets)}): {'; '.join(failures)}"
+                )
+            return True, f"Cleanup completed successfully for {success_count} datasets"
+        except Exception as e:
+            return False, f"Error during cleanup: {str(e)}"
     
     # ==================== Backup Operations ====================
     

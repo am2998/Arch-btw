@@ -1,81 +1,57 @@
-# ZFS Assistant - Makefile for AppImage building
-# Author: am2998
+# ZFS Assistant - Makefile
+# Source workflow (no AppImage pipeline in this repository state)
 
-.PHONY: all build release install clean help test lint format
+.PHONY: all build release install install-system clean help test lint format
 
-# Default target
-all: release
+all: help
 
-# Build release AppImage (comprehensive single script)
-release:
-	@echo "Building ZFS Assistant Release AppImage..."
-	@chmod +x appimage/build-release.sh
-	@./appimage/build-release.sh
+# Build Python distribution artifacts (sdist/wheel)
+release build:
+	@echo "Building Python distribution artifacts..."
+	@python3 -m build
 
-# Legacy build target (for compatibility)
-build: release
+# Install for local development
+install:
+	@echo "Installing in editable mode..."
+	@python3 -m pip install -e .
 
-# Install the AppImage (requires release first)
-install: release
-	@echo "Installing ZFS Assistant..."
-	@chmod +x appimage/install.sh
-	@./appimage/install.sh
+# Install system-wide (requires sudo)
+install-system:
+	@echo "Installing package system-wide..."
+	@sudo python3 -m pip install .
 
-# Install as root (system-wide)
-install-system: release
-	@echo "Installing ZFS Assistant system-wide..."
-	@chmod +x appimage/install.sh
-	@sudo ./appimage/install.sh
-
-# Clean build artifacts
+# Remove local build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf build/ release/
-	@rm -f appimagetool-x86_64.AppImage
+	@rm -rf build dist *.egg-info
+	@find src -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
-# Test the application (requires Python environment)
+# Minimal smoke tests (no dedicated tests/ directory yet)
 test:
-	@echo "Testing ZFS Assistant..."
-	@cd src && python3 -m pytest tests/ || echo "No tests found"
+	@echo "Running syntax smoke test..."
+	@python3 -m py_compile $$(find src -name '*.py' -type f)
 
-# Lint the code
+# Lint the code (optional tools)
 lint:
 	@echo "Linting code..."
-	@cd src && python3 -m flake8 . || echo "flake8 not installed"
-	@cd src && python3 -m pylint *.py || echo "pylint not installed"
+	@python3 -m flake8 src || echo "flake8 not installed"
+	@python3 -m pylint src || echo "pylint not installed"
 
-# Format the code
+# Format the code (optional tools)
 format:
 	@echo "Formatting code..."
-	@cd src && python3 -m black . || echo "black not installed"
-	@cd src && python3 -m isort . || echo "isort not installed"
+	@python3 -m black src || echo "black not installed"
+	@python3 -m isort src || echo "isort not installed"
 
-# Show help
 help:
-	@echo "ZFS Assistant AppImage Build System"
-	@echo "=================================="
+	@echo "ZFS Assistant - Source Build Workflow"
+	@echo "====================================="
 	@echo ""
 	@echo "Available targets:"
-	@echo "  release         Build release-ready AppImage (recommended)"
-	@echo "  build           Alias for release (for compatibility)"
-	@echo "  install         Build and install AppImage to user directory"
-	@echo "  install-system  Build and install AppImage system-wide (requires sudo)"
+	@echo "  install         Install editable package for development"
+	@echo "  install-system  Install package system-wide"
+	@echo "  release         Build wheel/sdist (python -m build)"
+	@echo "  test            Run python syntax smoke tests"
+	@echo "  lint            Run linting (if tools are installed)"
+	@echo "  format          Run formatting (if tools are installed)"
 	@echo "  clean           Remove build artifacts"
-	@echo "  test            Run tests"
-	@echo "  lint            Lint the code"
-	@echo "  format          Format the code"
-	@echo "  help            Show this help message"
-	@echo ""
-	@echo "Release process:"
-	@echo "  make release    # Creates release/ directory with AppImage and checksums"
-	@echo ""
-	@echo "Prerequisites:"
-	@echo "  - Linux system (for AppImage building)"
-	@echo "  - Python 3.8+"
-	@echo "  - GTK4 and libadwaita development packages"
-	@echo "  - PyGObject and pycairo"
-	@echo ""
-	@echo "Usage:"
-	@echo "  make release    # Build release AppImage"
-	@echo "  make install    # Build and install to ~/.local/bin"
-	@echo "  sudo make install-system  # Build and install system-wide"
