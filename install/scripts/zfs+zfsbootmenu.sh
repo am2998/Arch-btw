@@ -44,12 +44,60 @@ get_password() {
         fi
         echo -n "Re-enter password: "; read -r -s password_recheck_var; echo
         if [ "$password_var" = "$password_recheck_var" ]; then
-            eval "$2='$password_var'"
+            printf -v "$2" '%s' "$password_var"
             break
         else
             echo "Passwords do not match. Please try again."
         fi
     done
+}
+
+select_install_disk() {
+    local -a disks
+    local index
+    local selection
+    local confirm_disk
+
+    mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}')
+    [ "${#disks[@]}" -gt 0 ] || error_exit "No disks found."
+
+    echo "Available disks:"
+    for index in "${!disks[@]}"; do
+        printf "  [%d] %s\n" "$((index + 1))" "${disks[$index]}"
+    done
+
+    read -r -p "Select target disk number: " selection
+    [[ "$selection" =~ ^[0-9]+$ ]] || error_exit "Invalid selection."
+    [ "$selection" -ge 1 ] && [ "$selection" -le "${#disks[@]}" ] || error_exit "Selection out of range."
+
+    DISK="${disks[$((selection - 1))]}"
+    if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+        PARTITION_1="p1"
+        PARTITION_2="p2"
+    else
+        PARTITION_1="1"
+        PARTITION_2="2"
+    fi
+
+    echo "Selected disk: $DISK"
+    read -r -p "Type '$DISK' to confirm disk wipe: " confirm_disk
+    [ "$confirm_disk" = "$DISK" ] || error_exit "Disk confirmation failed."
+}
+
+cleanup() {
+    local exit_code=${1:-$?}
+
+    [ "${CLEANUP_DONE:-0}" -eq 1 ] && return
+    CLEANUP_DONE=1
+
+    rm -f /mnt/root/.arch-install-helpers.sh /mnt/root/.arch-rootpass
+    umount -R /mnt 2>/dev/null || true
+    zfs umount -a 2>/dev/null || true
+    zpool export zroot 2>/dev/null || true
+
+    if [ "$exit_code" -ne 0 ]; then
+        echo "Cleanup completed after error."
+    fi
 }
 
 echo -e "\n=== Arch Linux ZFS Installation ==="
@@ -62,23 +110,17 @@ validate_hostname "$HOSTNAME"
 
 print_header "Disk Detection"
 
-if lsblk | grep nvme &>/dev/null; then
-    DISK="/dev/nvme0n1"
-    PARTITION_1="p1"
-    PARTITION_2="p2"
-    echo "NVMe disk detected: $DISK"
-else 
-    error_exit "No NVMe drive found."
-fi
+select_install_disk
+trap 'cleanup $?' EXIT
 
 print_header "Partitioning $DISK"
 
-wipefs -a -f $DISK || error_exit "Failed to wipe disk"
+wipefs -a -f "$DISK" || error_exit "Failed to wipe disk"
 
-parted $DISK --script mklabel gpt || error_exit "Failed to create GPT table"
-parted $DISK --script mkpart ESP fat32 1MiB 1GiB || error_exit "Failed to create EFI partition"
-parted $DISK --script set 1 esp on || error_exit "Failed to set ESP flag"
-parted $DISK --script mkpart primary 1GiB 100% || error_exit "Failed to create root partition"
+parted "$DISK" --script mklabel gpt || error_exit "Failed to create GPT table"
+parted "$DISK" --script mkpart ESP fat32 1MiB 1GiB || error_exit "Failed to create EFI partition"
+parted "$DISK" --script set 1 esp on || error_exit "Failed to set ESP flag"
+parted "$DISK" --script mkpart primary 1GiB 100% || error_exit "Failed to create root partition"
 
 echo "Partitions created successfully."
 
@@ -112,9 +154,9 @@ mkdir -p /mnt/etc/zfs || error_exit "Failed to create /mnt/etc/zfs"
 zpool set cachefile=/etc/zfs/zpool.cache zroot || error_exit "Failed to set ZFS cachefile"
 cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache || error_exit "Failed to copy zpool.cache"
 
-mkfs.fat -F32 ${DISK}${PARTITION_1} || error_exit "Failed to format EFI partition"
+mkfs.fat -F32 "${DISK}${PARTITION_1}" || error_exit "Failed to format EFI partition"
 mkdir -p /mnt/efi || error_exit "Failed to create /mnt/efi"
-mount ${DISK}${PARTITION_1} /mnt/efi || error_exit "Failed to mount EFI partition"
+mount "${DISK}${PARTITION_1}" /mnt/efi || error_exit "Failed to mount EFI partition"
 
 
 print_header "Install base system"
@@ -128,12 +170,13 @@ print_header "Generate fstab file"
 genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab || error_exit "Failed to generate fstab"
 
 # Get the actual UUID of the EFI partition
-EFI_UUID=$(blkid -s UUID -o value ${DISK}${PARTITION_1})
+EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
 
 # Make EFI partition optional - only needed when updating bootloader
 # noauto = don't mount at boot, nofail = don't fail if unavailable
 # x-systemd.device-timeout=1 = don't wait long for device
-sed -i "/\/efi.*vfat/c\\${EFI_UUID:+UUID=${EFI_UUID}}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
+[ -n "$EFI_UUID" ] || error_exit "Failed to detect EFI UUID."
+sed -i "/\/efi.*vfat/c\\UUID=${EFI_UUID}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
 
 echo "fstab generated successfully."
 
@@ -143,9 +186,13 @@ echo "Entering chroot to configure the system..."
 
 # Make header helper available inside chroot
 declare -f print_header > /mnt/root/.arch-install-helpers.sh
+ROOTPASS_FILE="/mnt/root/.arch-rootpass"
+umask 077
+printf 'root:%s\n' "$ROOTPASS" > "$ROOTPASS_FILE"
+unset ROOTPASS
 
 arch-chroot /mnt \
-    /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" ROOTPASS="$ROOTPASS" HOSTNAME="$HOSTNAME" \
+    /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" HOSTNAME="$HOSTNAME" ROOTPASS_FILE="/root/.arch-rootpass" \
     /bin/bash --noprofile --norc -euo pipefail <<EOF
 
 source /root/.arch-install-helpers.sh
@@ -175,16 +222,22 @@ echo "Locale and keymap configured."
 
 print_header "Setup ZFS"
 
-echo -e '
+if ! grep -q '^\[archzfs\]' /etc/pacman.conf; then
+    echo -e '
 [archzfs]
 Server = https://github.com/archzfs/archzfs/releases/download/experimental' >> /etc/pacman.conf
+fi
 
 # ArchZFS GPG keys (see https://wiki.archlinux.org/index.php/Unofficial_user_repositories#archzfs)
 pacman-key -r DDF7DB817396A49B2A2723F7403BD972F75D9D76
 pacman-key --lsign-key DDF7DB817396A49B2A2723F7403BD972F75D9D76
 
-pacman -Sy --noconfirm zfs-dkms
+pacman -Syu --noconfirm --needed zfs-dkms
 systemctl enable zfs.target zfs-import-cache zfs-mount zfs-import.target
+
+if command -v zgenhostid >/dev/null 2>&1; then
+    zgenhostid -f "\$(hostid)"
+fi
 
 
 print_header "Install ZFSBootMenu"
@@ -266,7 +319,8 @@ pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils open
 
 print_header "Set root user password"
 
-echo "root:$ROOTPASS" | chpasswd
+chpasswd < "\$ROOTPASS_FILE"
+shred -u "\$ROOTPASS_FILE" || rm -f "\$ROOTPASS_FILE"
 
 echo "Root password set."
 
@@ -281,20 +335,17 @@ echo "Configuration completed successfully!"
 
 EOF
 
-# Cleanup temporary helper copied into the installed system
-rm -f /mnt/root/.arch-install-helpers.sh
-
 print_header "Unmount and prepare for reboot"
 
 echo "Unmounting filesystems..."
-umount -R /mnt || true
-zfs umount -a || true
-zpool export zroot || true
+cleanup 0
+trap - EXIT
 
 while read -r -t 0; do read -r || true; done
 
-    read -r -p "Type R/r to reboot: " REBOOT_CONFIRM
-    if [ "$REBOOT_CONFIRM" = "R" ] || [ "$REBOOT_CONFIRM" = "r" ]; then
-        reboot
-    else
-        echo "Reboot skipped. You can reboot manually when ready."
+read -r -p "Type R/r to reboot: " REBOOT_CONFIRM
+if [ "$REBOOT_CONFIRM" = "R" ] || [ "$REBOOT_CONFIRM" = "r" ]; then
+    reboot
+else
+    echo "Reboot skipped. You can reboot manually when ready."
+fi
