@@ -1,3 +1,205 @@
-# 🧪 Arch-Lab
+# Arch-btw
 
-This is a personal repository created to make Arch Linux experiments.
+Personal repository with scripts and hooks for experimental Arch Linux installations.
+
+It contains:
+- automated installation scripts for different setups (Btrfs/LUKS/LVM, EXT4/EFISTUB, ZFS/ZFSBootMenu)
+- `pacman` hooks for pre-transaction ZFS snapshots
+
+## Project Status
+
+This project is intended for personal/lab use. These scripts are powerful and **destructive**: they erase partitions and rewrite system configuration.
+
+Use them only if you fully understand what they do and after creating complete backups.
+
+## Repository Structure
+
+```text
+.
+├── install
+│   ├── pacman-hooks
+│   │   ├── 50-zfs-snapshot-pre.hook
+│   │   ├── zfs-pacman-snapshot.sh
+│   │   ├── .bashrc
+│   │   └── README.md
+│   └── scripts
+│       ├── btrfs+luks+lvm+systemdboot.sh
+│       ├── ext4+efistub.sh
+│       └── zfs+zfsbootmenu.sh
+├── LICENSE
+└── README.md
+```
+
+## General Prerequisites
+
+- booted from Arch Linux live ISO
+- active internet connection
+- root privileges
+- UEFI available
+- dedicated target disk (scripts wipe data)
+
+Recommended checks before running:
+
+```bash
+lsblk
+ip a
+ping -c 3 archlinux.org
+```
+
+## Installation Scripts
+
+### 1) `install/scripts/btrfs+luks+lvm+systemdboot.sh`
+
+Target setup:
+- GPT + EFI (1 GiB)
+- LUKS2 on the system partition
+- LVM (`sys/root`)
+- Btrfs with `@`, `@home`, `@var` subvolumes
+- `systemd-boot` bootloader
+- KDE-oriented desktop package set
+
+What it does (summary):
+- detects disk (`/dev/nvme0n1` or `/dev/sda`)
+- removes existing VG/PV and partition table
+- creates and configures LUKS + LVM + Btrfs
+- installs base system with `pacstrap`
+- configures locale/timezone/hostname/network/sudo
+- enables multilib, zram, mkinitcpio, systemd-boot
+
+Run:
+
+```bash
+chmod +x install/scripts/btrfs+luks+lvm+systemdboot.sh
+./install/scripts/btrfs+luks+lvm+systemdboot.sh
+```
+
+Notes:
+- uses `Europe/Rome` timezone
+- configures reflector mirrors for Italy
+- interactive script (user/password/hostname/LUKS passphrase)
+
+### 2) `install/scripts/ext4+efistub.sh`
+
+Target setup:
+- GPT + EFI (1 GiB)
+- EXT4 root filesystem
+- EFISTUB boot (with `linux-zen` + booster)
+- Hyprland-oriented desktop stack
+
+What it does (summary):
+- partitions and formats disk
+- installs base system with `linux-zen`
+- configures zram, locale, hostname, mirrors, multilib
+- creates UEFI entry via `efibootmgr`
+- installs Hyprland, audio components, NVIDIA drivers, base utilities
+
+Run:
+
+```bash
+chmod +x install/scripts/ext4+efistub.sh
+./install/scripts/ext4+efistub.sh
+```
+
+Important notes:
+- interactive script (user/password/hostname)
+- includes external downloads (dotfiles setup)
+- changes services and enables autologin on `tty1`
+
+### 3) `install/scripts/zfs+zfsbootmenu.sh`
+
+Target setup:
+- GPT + EFI
+- ZFS pool `zroot`
+- separate datasets for root and home
+- ZFSBootMenu bootloader
+
+What it does (summary):
+- interactive disk selection with explicit confirmation
+- disk wipe and ZFS pool/dataset creation
+- base install (`linux-lts`) and system configuration
+- ZFS repo/package setup + mkinitcpio ZFS hooks
+- ZFSBootMenu UEFI entry installation
+- base snapshot creation (`@base`)
+
+Run:
+
+```bash
+chmod +x install/scripts/zfs+zfsbootmenu.sh
+./install/scripts/zfs+zfsbootmenu.sh
+```
+
+Useful characteristics:
+- `set -euo pipefail`
+- helper functions + validations (hostname/password)
+- automatic cleanup on error (`trap`)
+
+## ZFS Snapshot Pacman Hook
+
+Folder: `install/pacman-hooks`
+
+Components:
+- `50-zfs-snapshot-pre.hook`: PreTransaction hook for `Install` and `Upgrade`
+- `zfs-pacman-snapshot.sh`: creates pre-update snapshots and handles retention cleanup
+
+Behavior:
+- snapshots dataset mounted at `/`
+- snapshots dataset mounted at `/home`
+- naming format: `pacman-<dd-mm-yy-HHMMSS>-<hash>`
+- default retention: 3 snapshots per dataset (`ZFS_PACMAN_MAX_SNAPSHOTS`)
+
+Manual installation:
+
+```bash
+sudo install -Dm644 install/pacman-hooks/50-zfs-snapshot-pre.hook /etc/pacman.d/hooks/50-zfs-snapshot-pre.hook
+sudo install -Dm755 install/pacman-hooks/zfs-pacman-snapshot.sh /usr/local/sbin/zfs-pacman-snapshot
+```
+
+Retention configuration (example: keep 10 snapshots):
+
+```bash
+echo 'ZFS_PACMAN_MAX_SNAPSHOTS=10' | sudo tee /etc/environment.d/zfs-pacman.conf
+```
+
+Temporary disable:
+
+```bash
+sudo touch /etc/zfs-pacman-snapshot.disable
+# re-enable
+sudo rm -f /etc/zfs-pacman-snapshot.disable
+```
+
+Verify snapshots:
+
+```bash
+zfs list -t snapshot | grep pacman
+```
+
+## Safety and Risks
+
+- scripts use `wipefs`, `fdisk`/`parted`, `mkfs`, `vgremove/pvremove` and can irreversibly erase data
+- some choices are hardcoded (timezone, mirror country, package selection)
+- not suitable for production without deep review
+
+## Suggested Customization
+
+Before usage, review at least:
+- target disk and partition naming
+- timezone and locale
+- default installed packages
+- boot configuration (microcode, kernel parameters)
+- enabled/disabled services
+
+## Quick Troubleshooting
+
+- `arch-chroot` fails: check mounts for `/mnt`, `/mnt/boot`, or `/mnt/efi`
+- boot entry missing in UEFI: verify with `efibootmgr -v`
+- ZFS pool not imported: check `zpool import`, `zpool status`, `zfs mount -a`
+- pacman hook not running: check hook path in `/etc/pacman.d/hooks` and script permissions in `/usr/local/sbin`
+
+## License
+
+This project is released under Apache 2.0. See `LICENSE`.
+
+## Disclaimer
+
+Experimental repository. The author is not responsible for data loss, downtime, or damage resulting from script usage.
