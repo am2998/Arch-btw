@@ -80,8 +80,6 @@ select_install_disk() {
     fi
 
     echo "Selected disk: $DISK"
-    read -r -p "Type '$DISK' to confirm disk wipe: " confirm_disk
-    [ "$confirm_disk" = "$DISK" ] || error_exit "Disk confirmation failed."
 }
 
 cleanup() {
