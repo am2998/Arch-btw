@@ -133,25 +133,30 @@ Useful characteristics:
 - helper functions + validations (hostname/password)
 - automatic cleanup on error (`trap`)
 
-## ZFS Snapshot Pacman Hook
+## ZFS Pacman Hooks
 
 Folder: `install/pacman-hooks`
 
 Components:
 - `50-zfs-snapshot-pre.hook`: PreTransaction hook for `Install` and `Upgrade`
 - `zfs-pacman-snapshot.sh`: creates pre-update snapshots and handles retention cleanup
+- `60-zfs-dracut-post.hook`: PostTransaction hook for kernel package updates
+- `zfs-dracut-kernel-refresh.sh`: regenerates dracut initramfs after kernel upgrades
 
 Behavior:
 - snapshots dataset mounted at `/`
 - snapshots dataset mounted at `/home`
 - naming format: `pacman-<dd-mm-yy-HHMMSS>-<hash>`
 - default retention: 3 snapshots per dataset (`ZFS_PACMAN_MAX_SNAPSHOTS`)
+- triggers dracut after kernel updates (`linux`, `linux-lts`, `linux-zen`, `linux-hardened`, ...)
 
 Manual installation:
 
 ```bash
 sudo install -Dm644 install/pacman-hooks/50-zfs-snapshot-pre.hook /etc/pacman.d/hooks/50-zfs-snapshot-pre.hook
 sudo install -Dm755 install/pacman-hooks/zfs-pacman-snapshot.sh /usr/local/sbin/zfs-pacman-snapshot
+sudo install -Dm644 install/pacman-hooks/60-zfs-dracut-post.hook /etc/pacman.d/hooks/60-zfs-dracut-post.hook
+sudo install -Dm755 install/pacman-hooks/zfs-dracut-kernel-refresh.sh /usr/local/sbin/zfs-dracut-kernel-refresh
 ```
 
 Retention configuration (example: keep 10 snapshots):
@@ -166,12 +171,18 @@ Temporary disable:
 sudo touch /etc/zfs-pacman-snapshot.disable
 # re-enable
 sudo rm -f /etc/zfs-pacman-snapshot.disable
+
+# disable dracut regeneration hook
+sudo touch /etc/zfs-dracut-kernel-refresh.disable
+# re-enable
+sudo rm -f /etc/zfs-dracut-kernel-refresh.disable
 ```
 
 Verify snapshots:
 
 ```bash
 zfs list -t snapshot | grep pacman
+journalctl -t zfs-dracut-kernel-refresh -n 50 --no-pager
 ```
 
 ## Safety and Risks

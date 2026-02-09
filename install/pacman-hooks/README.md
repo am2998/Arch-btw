@@ -1,6 +1,8 @@
-# Pacman hook: ZFS snapshots
+# Pacman hooks: ZFS snapshots + dracut kernel refresh
 
-These files create a ZFS snapshot *before* every `pacman` transaction that installs or upgrades packages.
+These files provide:
+- ZFS snapshot creation *before* every `pacman` install/upgrade transaction.
+- dracut initramfs regeneration *after* kernel upgrades.
 
 ## What it does
 
@@ -10,12 +12,16 @@ These files create a ZFS snapshot *before* every `pacman` transaction that insta
 - Snapshots of:
   - dataset mounted at `/`
   - dataset mounted at `/home`
+- Pacman hook (PostTransaction) on kernel package upgrades (`linux`, `linux-lts`, `linux-zen`, ...)
+- Best-effort `dracut --force --regenerate-all` execution for updated kernels
 
 ## Installation (manual)
 
 - Copy the hook file to `/etc/pacman.d/hooks/`
 - Copy the script to `/usr/local/sbin/zfs-pacman-snapshot` and make it executable
-- Optionally copy `zfs-cleanup-snapshots.sh` to `/usr/local/sbin/` for manual cleanup
+- Copy the dracut hook/script:
+  - `60-zfs-dracut-post.hook` -> `/etc/pacman.d/hooks/`
+  - `zfs-dracut-kernel-refresh.sh` -> `/usr/local/sbin/zfs-dracut-kernel-refresh`
 
 ## Configuration
 
@@ -34,6 +40,7 @@ ZFS_PACMAN_MAX_SNAPSHOTS=15
 ## Temporary disable
 
 - If the file `/etc/zfs-pacman-snapshot.disable` exists, the script does nothing.
+- If the file `/etc/zfs-dracut-kernel-refresh.disable` exists, dracut regeneration is skipped.
 
 ## Snapshot name
 
@@ -50,4 +57,7 @@ zfs list -t snapshot | grep pacman
 
 # Check disk usage
 zfs list -o space
+
+# Check dracut hook logs
+journalctl -t zfs-dracut-kernel-refresh -n 50 --no-pager
 ```

@@ -1,0 +1,16 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux
+Target = linux-lts
+Target = linux-zen
+Target = linux-hardened
+Target = linux-rt
+Target = linux-rt-lts
+
+[Action]
+Description = Regenerate dracut initramfs after kernel update (ZFS)
+When = PostTransaction
+Exec = /usr/local/sbin/zfs-dracut-kernel-refresh
+NeedsTargets
