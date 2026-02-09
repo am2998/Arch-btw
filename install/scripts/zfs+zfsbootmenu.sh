@@ -5,7 +5,7 @@
 set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Helper Functions
+# HELPER FUNCTIONS
 # --------------------------------------------------------------------------------------------------------------------------
 
 print_header() {
@@ -14,21 +14,6 @@ print_header() {
     echo -e "\n\n# ${line}"
     echo -e "# ${title}"
     echo -e "# ${line}\n"
-}
-
-error_exit() {
-    echo "ERROR: $1" >&2
-    exit 1
-}
-
-validate_hostname() {
-    local hostname=$1
-    if [[ ! "$hostname" =~ ^[a-z0-9-]+$ ]]; then
-        error_exit "Invalid hostname. Use only lowercase letters, numbers and hyphen."
-    fi
-    if [ ${#hostname} -gt 63 ]; then
-        error_exit "Hostname too long (max 63 characters)."
-    fi
 }
 
 get_password() {
@@ -59,7 +44,7 @@ select_install_disk() {
     local confirm_disk
 
     mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}')
-    [ "${#disks[@]}" -gt 0 ] || error_exit "No disks found."
+    [ "${#disks[@]}" -gt 0 ]  
 
     echo "Available disks:"
     for index in "${!disks[@]}"; do
@@ -67,8 +52,8 @@ select_install_disk() {
     done
 
     read -r -p "Select target disk number: " selection
-    [[ "$selection" =~ ^[0-9]+$ ]] || error_exit "Invalid selection."
-    [ "$selection" -ge 1 ] && [ "$selection" -le "${#disks[@]}" ] || error_exit "Selection out of range."
+    [[ "$selection" =~ ^[0-9]+$ ]]  
+    [ "$selection" -ge 1 ] && [ "$selection" -le "${#disks[@]}" ]  
 
     DISK="${disks[$((selection - 1))]}"
     if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
@@ -89,9 +74,9 @@ cleanup() {
     CLEANUP_DONE=1
 
     rm -f /mnt/root/.arch-install-helpers.sh /mnt/root/.arch-rootpass
-    umount -R /mnt 2>/dev/null || true
-    zfs umount -a 2>/dev/null || true
-    zpool export zroot 2>/dev/null || true
+    umount -R /mnt 2>/dev/null  true
+    zfs umount -a 2>/dev/null  true
+    zpool export zroot 2>/dev/null  true
 
     if [ "$exit_code" -ne 0 ]; then
         echo "Cleanup completed after error."
@@ -104,7 +89,11 @@ echo -e "This script will ERASE all data on the selected disk!\n"
 get_password "Enter the password for root user" ROOTPASS
 
 echo -n "Enter the hostname: "; read -r HOSTNAME
-validate_hostname "$HOSTNAME"
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# DISK PARTITIONING
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Disk Detection"
 
@@ -113,68 +102,81 @@ trap 'cleanup $?' EXIT
 
 print_header "Partitioning $DISK"
 
-wipefs -a -f "$DISK" || error_exit "Failed to wipe disk"
+wipefs -a -f "$DISK"  
 
-parted "$DISK" --script mklabel gpt || error_exit "Failed to create GPT table"
-parted "$DISK" --script mkpart ESP fat32 1MiB 1GiB || error_exit "Failed to create EFI partition"
-parted "$DISK" --script set 1 esp on || error_exit "Failed to set ESP flag"
-parted "$DISK" --script mkpart primary 1GiB 100% || error_exit "Failed to create root partition"
+parted "$DISK" --script mklabel gpt  
+parted "$DISK" --script mkpart ESP fat32 1MiB 1GiB  
+parted "$DISK" --script set 1 esp on  
+parted "$DISK" --script mkpart primary 1GiB 100%  
 
 echo "Partitions created successfully."
 
 sleep 2  # Wait for kernel to recognize partitions
 
-print_header "Format and mount partitions"
+# --------------------------------------------------------------------------------------------------------------------------
+# ZPOOL AND DATASET
+# --------------------------------------------------------------------------------------------------------------------------
+
+print_header "zpool and dataset creation"
 
 zpool create \
     -o ashift=12 \
     -O acltype=posixacl -O canmount=off -O compression=lz4 \
     -O dnodesize=auto -O normalization=formD -o autotrim=on \
     -O atime=off -O xattr=sa -O mountpoint=none \
-    -R /mnt zroot ${DISK}${PARTITION_2} -f || error_exit "Failed to create ZFS pool"
+    -R /mnt zroot ${DISK}${PARTITION_2} -f  
 echo "ZFS pool created successfully."
 
 # Dataset layout
-# - zroot/ROOT is a container
-# - zroot/ROOT/default is the boot environment mounted at /
-zfs create -o mountpoint=none zroot/data || error_exit "Failed to create zroot/data container"
-zfs create -o mountpoint=none zroot/ROOT || error_exit "Failed to create zroot/ROOT container"
-zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/default || error_exit "Failed to create zroot/ROOT/default"
-zfs create -o mountpoint=/home zroot/data/home || error_exit "Failed to create /home dataset"
+zfs create -o mountpoint=none zroot/data  
+zfs create -o mountpoint=none zroot/ROOT  
+zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/default  
+#zfs create -o mountpoint=/home zroot/data/home  
 
-zpool set bootfs=zroot/ROOT/default zroot || error_exit "Failed to set bootfs property"
+zpool set bootfs=zroot/ROOT/default zroot  
 echo "bootfs property set successfully."
 
-zfs mount zroot/ROOT/default || error_exit "Failed to mount root dataset"
-zfs mount -a || error_exit "Failed to mount ZFS datasets"
+zfs mount zroot/ROOT/default  
+zfs mount -a  
 
-mkdir -p /mnt/etc/zfs || error_exit "Failed to create /mnt/etc/zfs"
-zpool set cachefile=/etc/zfs/zpool.cache zroot || error_exit "Failed to set ZFS cachefile"
-cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache || error_exit "Failed to copy zpool.cache"
+mkdir -p /mnt/etc/zfs  
+zpool set cachefile=/etc/zfs/zpool.cache zroot  
+cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache  
 
-mkfs.fat -F32 "${DISK}${PARTITION_1}" || error_exit "Failed to format EFI partition"
-mkdir -p /mnt/efi || error_exit "Failed to create /mnt/efi"
-mount "${DISK}${PARTITION_1}" /mnt/efi || error_exit "Failed to mount EFI partition"
+mkfs.fat -F32 "${DISK}${PARTITION_1}"  
+mkdir -p /mnt/efi  
+mount "${DISK}${PARTITION_1}" /mnt/efi  
 
+# --------------------------------------------------------------------------------------------------------------------------
+# BASE SYSTEM
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator sudo networkmanager amd-ucode wget  
 
 
 print_header "Generate fstab file"
 
+# --------------------------------------------------------------------------------------------------------------------------
+# FSTAB
+# --------------------------------------------------------------------------------------------------------------------------
+
 # Exclude ZFS entries - ZFS handles its own mounting via zfs-mount.service
-genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab || error_exit "Failed to generate fstab"
+genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab  
 
 # Get the actual UUID of the EFI partition
 EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
 
 # Make EFI partition optional - only needed when updating bootloader
-[ -n "$EFI_UUID" ] || error_exit "Failed to detect EFI UUID."
+[ -n "$EFI_UUID" ]  
 sed -i "/\/efi.*vfat/c\\UUID=${EFI_UUID}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
 
 echo "fstab generated successfully."
+
+# --------------------------------------------------------------------------------------------------------------------------
+# CHROOT
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Chroot into the system and configure"
 
@@ -199,22 +201,37 @@ error_exit() {
 }
 
 # Safety: ensure we don't echo each input line (bash verbose mode)
-set +o verbose || true
-set +o xtrace || true
+set +o verbose  true
+set +o xtrace  true
 
 echo "Chrooted successfully!"
 
-print_header "Enable Network Manager service"
+# --------------------------------------------------------------------------------------------------------------------------
+# SERVICES
+# --------------------------------------------------------------------------------------------------------------------------
+
+print_header "Manage Services"
 
 systemctl enable NetworkManager
 systemctl mask NetworkManager-wait-online.service
-echo "Network Enabled!"
+systemctl mask ldconfig.service
+systemctl mask geoclue
+
+echo "Services configured."
+
+# --------------------------------------------------------------------------------------------------------------------------
+# LOCALE
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Configure locale"
 
 localectl set-keymap us
 echo "KEYMAP=us" > /etc/vconsole.conf
 echo "Locale and keymap configured."
+
+# --------------------------------------------------------------------------------------------------------------------------
+# ZFS
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Setup ZFS"
 
@@ -235,11 +252,14 @@ if command -v zgenhostid >/dev/null 2>&1; then
     zgenhostid -f "\$(hostid)"
 fi
 
+# --------------------------------------------------------------------------------------------------------------------------
+# ZFSBOOTMENU
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Install ZFSBootMenu"
 
 mkdir -p /efi/EFI/zbm
-wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI || error_exit "Failed to download ZFSBootMenu"
+wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI  
 
 # Create the boot entry
 efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
@@ -248,7 +268,11 @@ efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --verbose >/dev/null
 
 # Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=\$(hostid)" zroot/ROOT/default || error_exit "Failed to set ZFSBootMenu commandline property"
+zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=\$(hostid)" zroot/ROOT/default  
+
+# --------------------------------------------------------------------------------------------------------------------------
+# MKINITCPIO
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Configure mkinitcpio"
 
@@ -256,6 +280,10 @@ print_header "Configure mkinitcpio"
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block zfs filesystems)/' /etc/mkinitcpio.conf
 
 mkinitcpio -p linux-lts
+
+# --------------------------------------------------------------------------------------------------------------------------
+# ZRAM
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Configure ZRAM"
 
@@ -272,12 +300,18 @@ echo "vm.page-cluster = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
 
 sysctl --system
 
+# --------------------------------------------------------------------------------------------------------------------------
+# MULTILIB REPO
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Enable Multilib repository"
 
 sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
 pacman -Syy
 
+# --------------------------------------------------------------------------------------------------------------------------
+# SYSTEM CONFIG
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "System config"
 
@@ -293,24 +327,38 @@ sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
 
 echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
 
+# --------------------------------------------------------------------------------------------------------------------------
+# AUDIO
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Install audio components"
 
 pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
 
+# --------------------------------------------------------------------------------------------------------------------------
+# NVIDIA DRIVERS
+# --------------------------------------------------------------------------------------------------------------------------
+
 print_header "Install NVIDIA drivers"
 
 pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
+# --------------------------------------------------------------------------------------------------------------------------
+# ROOT PASSWORD
+# --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Set root user password"
 
 chpasswd < "\$ROOTPASS_FILE"
-shred -u "\$ROOTPASS_FILE" || rm -f "\$ROOTPASS_FILE"
+shred -u "\$ROOTPASS_FILE"  rm -f "\$ROOTPASS_FILE"
 
 echo "Root password set."
 
 echo "Configuration completed successfully!"
+
+# --------------------------------------------------------------------------------------------------------------------------
+# INSTALLATION COMPLETED
+# --------------------------------------------------------------------------------------------------------------------------
 
 EOF
 
@@ -320,10 +368,10 @@ echo "Unmounting filesystems..."
 cleanup 0
 trap - EXIT
 
-while read -r -t 0; do read -r || true; done
+while read -r -t 0; do read -r  true; done
 
 read -r -p "Type R/r to reboot: " REBOOT_CONFIRM
-if [ "$REBOOT_CONFIRM" = "R" ] || [ "$REBOOT_CONFIRM" = "r" ]; then
+if [ "$REBOOT_CONFIRM" = "R" ]  [ "$REBOOT_CONFIRM" = "r" ]; then
     reboot
 else
     echo "Reboot skipped. You can reboot manually when ready."
