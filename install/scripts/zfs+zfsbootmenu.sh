@@ -161,7 +161,7 @@ mount "${DISK}${PARTITION_1}" /mnt/efi || error_exit "Failed to mount EFI partit
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator reflector sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr zram-generator sudo networkmanager amd-ucode wget || error_exit "Failed to install base system (pacstrap)"
 
 
 print_header "Generate fstab file"
@@ -173,8 +173,6 @@ genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab || error_exit "Failed to genera
 EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
 
 # Make EFI partition optional - only needed when updating bootloader
-# noauto = don't mount at boot, nofail = don't fail if unavailable
-# x-systemd.device-timeout=1 = don't wait long for device
 [ -n "$EFI_UUID" ] || error_exit "Failed to detect EFI UUID."
 sed -i "/\/efi.*vfat/c\\UUID=${EFI_UUID}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
 
@@ -208,11 +206,11 @@ set +o xtrace || true
 
 echo "Chrooted successfully!"
 
-print_header "Configure mirrors and Enable Network Manager service"
+print_header "Enable Network Manager service"
 
-reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 systemctl enable NetworkManager
 systemctl mask NetworkManager-wait-online.service
+echo "Network Enabled!"
 
 print_header "Configure locale"
 
@@ -244,11 +242,6 @@ print_header "Install ZFSBootMenu"
 
 mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI || error_exit "Failed to download ZFSBootMenu"
-
-# Remove any existing ZFSBootMenu entries to avoid duplicates
-for bootnum in \$(efibootmgr | awk -F'[* ]+' '/ZFSBootMenu/ {sub(/^Boot/, "", \$1); print \$1}'); do
-    efibootmgr -b "\$bootnum" -B
-done
 
 # Create the boot entry
 efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
@@ -303,14 +296,9 @@ sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
 echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
 
 
-print_header "Install utilities and Enable services"
-pacman -S --noconfirm flatpak git man nano
-
-
 print_header "Install audio components"
 
 pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
-
 
 print_header "Install NVIDIA drivers"
 
@@ -323,13 +311,6 @@ chpasswd < "\$ROOTPASS_FILE"
 shred -u "\$ROOTPASS_FILE" || rm -f "\$ROOTPASS_FILE"
 
 echo "Root password set."
-
-print_header "Create ZFS snapshots"
-
-    zfs snapshot zroot/ROOT/default@base
-    zfs snapshot zroot/data/home@base
-    echo "ZFS base snapshots created"
-
 
 echo "Configuration completed successfully!"
 
