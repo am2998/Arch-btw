@@ -1,13 +1,12 @@
 #!/bin/bash
 
 # EXT4 + EFISTUB 
-# Hyprland
 
 exec > >(tee -a result.log) 2>&1
 
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Prompt for user and system settings                                                                                      
+# helper functions                                                                                     
 # --------------------------------------------------------------------------------------------------------------------------
 
 get_password() {
@@ -27,8 +26,40 @@ get_password() {
     done
 }
 
-echo -ne "\n\nEnter the username: "; read -r USER
-get_password "Enter the password for user $USER" USERPASS
+select_install_disk() {
+    local -a disks
+    local index
+    local selection
+    local confirm_disk
+
+    mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}')
+    [ "${#disks[@]}" -gt 0 ] || error_exit "No disks found."
+
+    echo "Available disks:"
+    for index in "${!disks[@]}"; do
+        printf "  [%d] %s\n" "$((index + 1))" "${disks[$index]}"
+    done
+
+    read -r -p "Select target disk number: " selection
+    [[ "$selection" =~ ^[0-9]+$ ]] || error_exit "Invalid selection."
+    [ "$selection" -ge 1 ] && [ "$selection" -le "${#disks[@]}" ] || error_exit "Selection out of range."
+
+    DISK="${disks[$((selection - 1))]}"
+    if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
+        PARTITION_1="p1"
+        PARTITION_2="p2"
+    else
+        PARTITION_1="1"
+        PARTITION_2="2"
+    fi
+
+    echo "Selected disk: $DISK"
+}
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Prompt for root password and hostname                                                                                    
+# --------------------------------------------------------------------------------------------------------------------------
+
 get_password "Enter the password for user root" ROOTPASS
 echo -n "Enter the hostname: "; read -r HOSTNAME
 
@@ -37,38 +68,16 @@ echo -e "\n\n# -----------------------------------------------------------------
 echo -e "# Cleaning old partition table and partitioning"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-if lsblk | grep nvme &>/dev/null; then
-    DISK="/dev/nvme0n1"
-    PARTITION_1="p1"
-    PARTITION_2="p2"
-    echo "NVMe disk detected: $DISK"
-elif lsblk | grep sda &>/dev/null; then
-    DISK="/dev/sda"
-    PARTITION_1="1"
-    PARTITION_2="2"
-    echo "SATA disk detected: $DISK"
-else 
-    echo "ERROR: No NVMe or SATA drive found. Exiting."
-    exit 1
-fi
+select_install_disk
 
-wipefs -a -f $DISK 
+wipefs -a -f "$DISK"
 
-(
-echo g           # Create a GPT partition table
-echo n           # Create the EFI partition
-echo             # Default, 1
-echo             # Default
-echo +1G         # 1GB for the EFI partition
-echo t           # Change partition type to EFI
-echo 1           # EFI type
-echo n           # Create the system partition
-echo             # Default, 2
-echo             # Default
-echo             # Default, use the rest of the space
-echo w           # Write the partition table
-) | fdisk $DISK
+parted "$DISK" --script mklabel gpt
+parted "$DISK" --script mkpart ESP fat32 1MiB 1GiB
+parted "$DISK" --script set 1 esp on
+parted "$DISK" --script mkpart primary 1GiB 100%
 
+echo "Partitions created successfully."
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
 echo -e "# Format and mount partitions"
@@ -85,7 +94,7 @@ echo -e "\n\n# -----------------------------------------------------------------
 echo -e "# Install base system"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-pacstrap /mnt linux-zen linux-zen-headers booster base base-devel linux-firmware zram-generator reflector sudo networkmanager intel-ucode efibootmgr
+pacstrap /mnt linux-zen linux-zen-headers booster base linux-firmware zram-generator networkmanager amd-ucode efibootmgr
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"
@@ -105,22 +114,12 @@ env DISK=$DISK arch-chroot /mnt <<EOF
 
 echo -e "in chroot...\n\n"
 
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure mirrors
-# --------------------------------------------------------------------------------------------------------------------------
-
-reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
-cat /etc/pacman.d/mirrorlist
-
-
 # --------------------------------------------------------------------------------------------------------------------------
 # Enable Multilib repository
 # --------------------------------------------------------------------------------------------------------------------------
 
 sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
 pacman -Syy
-
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Configure ZRAM
@@ -144,50 +143,20 @@ sysctl --system
 # EFI Stub with Booster
 # --------------------------------------------------------------------------------------------------------------------------
 
-efibootmgr --create --disk $DISK --part 1 --label "Arch Linux" --loader /vmlinuz-linux-zen --unicode "root=UUID=$(blkid -s UUID -o value /dev/sda2) rw initrd=\intel-ucode.img initrd=\booster-linux-zen.img"
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Install utilities and applications
-# --------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --noconfirm flatpak firefox man nano git
-
+efibootmgr --create --disk $DISK --part 1 --label "Arch Linux" --loader /vmlinuz-linux-zen --unicode "root=UUID=$(blkid -s UUID -o value ${DISK}${PARTITION_2}) rw initrd=\amd-ucode.img initrd=\booster-linux-zen.img"
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Install audio components
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm pipewire wireplumber pipewire-pulse alsa-plugins alsa-firmware sof-firmware alsa-card-profiles pavucontrol-qt
+pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
 
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Install NVIDIA drivers
 # --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Install Hyprland + ML4W dotfiles
-# --------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --noconfirm hyprland egl-wayland
-find /usr/share/wayland-sessions -type f -not -name "hyprland.desktop" -delete
-
-mkdir -p /etc/systemd/system/getty@tty1.service.d 
-
-echo -e "
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty -o '-p -f -- \\u' --noclear --autologin $USER %I $TERM" >> /etc/systemd/system/getty@tty1.service.d/autologin.conf
-
-echo -e "[[ '$(tty)' == /dev/tty1 ]] && Hyprland > /dev/null" > /home/$USER/.bash_profile
-
-groupadd -r autologin
-
-wget https://raw.githubusercontent.com/mylinuxforwork/dotfiles/main/setup-arch.sh /home/$USER
-
+pacman -S --needed --noconfirm nvidia-open nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 # --------------------------------------------------------------------------------------------------------------------------
 # System setup
@@ -209,37 +178,17 @@ echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.loc
 
 
 # --------------------------------------------------------------------------------------------------------------------------
-# Create user and set passwords
+# Set Root passwords
 # --------------------------------------------------------------------------------------------------------------------------
-
-useradd -m $USER
-echo "$USER:$USERPASS" | chpasswd
-gpasswd -a $USER autologin
 
 echo "root:$ROOTPASS" | chpasswd
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Configure sudoers file
-# --------------------------------------------------------------------------------------------------------------------------
-
-echo -e "\n\n$USER ALL=(ALL:ALL) NOPASSWD: ALL" | tee -a /etc/sudoers
-echo -e "\nSudoers file configured"
-
-
-# --------------------------------------------------------------------------------------------------------------------------
-# Install Yay
-# --------------------------------------------------------------------------------------------------------------------------
-
-su -c "cd /tmp && git clone https://aur.archlinux.org/yay.git && cd yay && echo $USERPASS | makepkg -si --noconfirm" $USER
-echo "Yay installation completed"
-
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Manage services
 # --------------------------------------------------------------------------------------------------------------------------
 
 systemctl enable NetworkManager
+systemctl mask NetworkManager-wait-online.service
 systemctl mask ldconfig.service
 systemctl mask geoclue
 
