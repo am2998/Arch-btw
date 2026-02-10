@@ -51,7 +51,7 @@ select_install_disk() {
         printf "  %d. %s\n" "$((index + 1))" "${disks[$index]}"
     done
 
-    read -r -p "Select target disk number: " selection
+    read -r -p "\nSelect target disk number: " selection
     [[ "$selection" =~ ^[0-9]+$ ]]  
     [ "$selection" -ge 1 ] && [ "$selection" -le "${#disks[@]}" ]  
 
@@ -780,7 +780,7 @@ pacman -U --noconfirm /tmp/yay/yay-*.pkg.tar.*
 20. PRE-DESKTOP SNAPSHOT (inside chroot)
 --------------------------------------------------------------------------------------------------------------------------
 
-zfs snapshot "zroot/ROOT/default@pre-cosmic-wayland"
+zfs snapshot "zroot/ROOT/default@base"
 
 --------------------------------------------------------------------------------------------------------------------------
 21. INSTALL COSMIC DESKTOP (inside chroot)
