@@ -165,7 +165,7 @@ mount "${DISK}${PARTITION_1}" /mnt/efi
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector  
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
 
 # --------------------------------------------------------------------------------------------------------------------------
 # FSTAB
@@ -512,8 +512,8 @@ DISK="/dev/sdX"                    # Disco di destinazione (es. /dev/sda, /dev/n
 PARTITION_1="1"                    # Per SATA: "1", per NVMe: "p1"
 PARTITION_2="2"                    # Per SATA: "2", per NVMe: "p2"
 HOSTNAME="archlinux"               # Nome host
-USERNAME="utente"                  # Nome utente
-ZFS_PASS="passphrase"              # Passphrase per cifratura ZFS
+USERNAME="archuser"                # Nome utente
+ZFS_PASS="password"                # Passphrase per cifratura ZFS
 
 --------------------------------------------------------------------------------------------------------------------------
 1. PARTIZIONAMENTO DISCO
@@ -574,7 +574,7 @@ mount "${DISK}${PARTITION_1}" /mnt/efi
 3. INSTALLAZIONE SISTEMA BASE
 --------------------------------------------------------------------------------------------------------------------------
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
 
 --------------------------------------------------------------------------------------------------------------------------
 4. GENERAZIONE FSTAB
