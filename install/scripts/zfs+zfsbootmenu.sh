@@ -48,7 +48,7 @@ select_install_disk() {
 
     echo "Available disks:"
     for index in "${!disks[@]}"; do
-        printf "  [%d] %s\n" "$((index + 1))" "${disks[$index]}"
+        printf "  %d. %s\n" "$((index + 1))" "${disks[$index]}"
     done
 
     read -r -p "Select target disk number: " selection
@@ -250,7 +250,7 @@ echo "Locale and keymap configured."
 print_header "Configure pacman mirrors (Italy)"
 
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-reflector --country Italy --protocol https --latest 30 --fastest 20 --sort rate --save /etc/pacman.d/mirrorlist
+reflector --protocol https --latest 30 --fastest 20 --sort rate --save /etc/pacman.d/mirrorlist
 pacman -Syy
 
 # --------------------------------------------------------------------------------------------------------------------------
