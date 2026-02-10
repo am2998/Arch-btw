@@ -221,25 +221,15 @@ set +o xtrace
 echo "Chrooted successfully!"
 
 # --------------------------------------------------------------------------------------------------------------------------
-# DNS
-# --------------------------------------------------------------------------------------------------------------------------
-
-print_header "Configure DNS"
-
-cat > /etc/resolv.conf <<'EOFDNS'
-nameserver 1.1.1.1
-EOFDNS
-
-echo "DNS configured to Cloudflare (1.1.1.1)."
-
-# --------------------------------------------------------------------------------------------------------------------------
 # MIRRORS
 # --------------------------------------------------------------------------------------------------------------------------
 
 print_header "Configure pacman mirrors"
 
+echo "nameserver 1.1.1.1" > /etc/resolv.conf
+
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-reflector --protocol https --latest 30 --fastest 20 --sort rate --save /etc/pacman.d/mirrorlist
+reflector --protocol https --country Italy --age 24 --latest 15 --fastest 5 --sort rate --save /etc/pacman.d/mirrorlist 
 pacman -Syy
 
 
@@ -289,6 +279,15 @@ print_header "Install ZFSBootMenu"
 mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI  
 
+# Create the boot entry
+efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
+    --loader '\EFI\zbm\zfsbootmenu.EFI' \
+    --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
+    --verbose >/dev/null
+
+# Set ZFS properties for boot
+zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid) rd.systemd.gpt_auto=0" zroot/ROOT/default  
+
 # --------------------------------------------------------------------------------------------------------------------------
 # SECURE BOOT
 # --------------------------------------------------------------------------------------------------------------------------
@@ -310,15 +309,6 @@ fi
 
 # Sign the EFI binary so it can boot with Secure Boot enabled.
 sbctl sign -s /efi/EFI/zbm/zfsbootmenu.EFI
-
-# Create the boot entry
-efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
-    --loader '\EFI\zbm\zfsbootmenu.EFI' \
-    --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
-    --verbose >/dev/null
-
-# Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid) rd.systemd.gpt_auto=0" zroot/ROOT/default  
 
 # --------------------------------------------------------------------------------------------------------------------------
 # DRACUT
@@ -463,12 +453,7 @@ echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
 print_header "Install COSMIC desktop"
 
 pacman -S --needed --noconfirm cosmic-session
-
-if systemctl list-unit-files | grep -q '^cosmic-greeter\.service'; then
-    systemctl enable cosmic-greeter.service
-else
-    echo "cosmic-greeter.service not found; enable your preferred display manager manually."
-fi
+systemctl enable cosmic-greeter.service
 
 # --------------------------------------------------------------------------------------------------------------------------
 # INSTALLATION COMPLETED
