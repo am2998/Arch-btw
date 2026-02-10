@@ -239,9 +239,6 @@ fi
 echo "Active mirrors:"
 grep '^Server' /etc/pacman.d/mirrorlist
 
-pacman -Syy
-
-
 # --------------------------------------------------------------------------------------------------------------------------
 # SERVICES
 # --------------------------------------------------------------------------------------------------------------------------
@@ -492,3 +489,304 @@ if [ "$REBOOT_CONFIRM" = "R" ] || [ "$REBOOT_CONFIRM" = "r" ]; then
 else
     echo "Reboot skipped. You can reboot manually when ready."
 fi
+
+exit 0
+
+: <<'MANUAL_INSTALLATION_GUIDE'
+##########################################################################################################################
+##########################################################################################################################
+##                                                                                                                      ##
+##                                    MANUALE - COMANDI PER INSTALLAZIONE MANUALE                                       ##
+##                                                                                                                      ##
+##########################################################################################################################
+##########################################################################################################################
+
+Questa sezione contiene tutti i comandi da eseguire manualmente per installare Arch Linux con ZFS e ZFSBootMenu.
+Sostituisci le variabili tra <...> con i tuoi valori.
+
+--------------------------------------------------------------------------------------------------------------------------
+VARIABILI DA IMPOSTARE
+--------------------------------------------------------------------------------------------------------------------------
+
+DISK="/dev/sdX"                    # Disco di destinazione (es. /dev/sda, /dev/nvme0n1)
+PARTITION_1="1"                    # Per SATA: "1", per NVMe: "p1"
+PARTITION_2="2"                    # Per SATA: "2", per NVMe: "p2"
+HOSTNAME="archlinux"               # Nome host
+USERNAME="utente"                  # Nome utente
+ZFS_PASS="passphrase"              # Passphrase per cifratura ZFS
+
+--------------------------------------------------------------------------------------------------------------------------
+1. PARTIZIONAMENTO DISCO
+--------------------------------------------------------------------------------------------------------------------------
+
+wipefs -a -f "$DISK"
+parted "$DISK" --script mklabel gpt
+parted "$DISK" --script mkpart ESP fat32 1MiB 1GiB
+parted "$DISK" --script set 1 esp on
+parted "$DISK" --script mkpart primary 1GiB 100%
+
+--------------------------------------------------------------------------------------------------------------------------
+2. CREAZIONE ZPOOL E DATASET
+--------------------------------------------------------------------------------------------------------------------------
+
+# Crea file chiave temporaneo
+ZFS_KEYFILE="/tmp/arch-zfs.key"
+umask 077
+printf '%s' "$ZFS_PASS" > "$ZFS_KEYFILE"
+
+# Crea zpool con cifratura
+zpool create \
+    -o ashift=12 \
+    -O acltype=posixacl -O canmount=off -O compression=lz4 \
+    -O dnodesize=auto -O normalization=formD -o autotrim=on \
+    -O atime=off -O xattr=sa -O mountpoint=none \
+    -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation="file://$ZFS_KEYFILE" \
+    -R /mnt zroot ${DISK}${PARTITION_2} -f
+
+rm -f "$ZFS_KEYFILE"
+
+# Crea dataset
+zfs create -o mountpoint=none zroot/ROOT
+zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/default
+
+# Imposta bootfs
+zpool set bootfs=zroot/ROOT/default zroot
+
+# Monta i dataset
+zfs mount zroot/ROOT/default
+zfs mount -a
+
+# Configura cache
+mkdir -p /mnt/etc/zfs
+zpool set cachefile=/etc/zfs/zpool.cache zroot
+cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache
+
+# Salva chiave per sblocco automatico
+umask 077
+printf '%s' "$ZFS_PASS" > /mnt/etc/zfs/zroot.key
+
+# Formatta e monta partizione EFI
+mkfs.fat -F32 "${DISK}${PARTITION_1}"
+mkdir -p /mnt/efi
+mount "${DISK}${PARTITION_1}" /mnt/efi
+
+--------------------------------------------------------------------------------------------------------------------------
+3. INSTALLAZIONE SISTEMA BASE
+--------------------------------------------------------------------------------------------------------------------------
+
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector
+
+--------------------------------------------------------------------------------------------------------------------------
+4. GENERAZIONE FSTAB
+--------------------------------------------------------------------------------------------------------------------------
+
+genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab
+
+# Ottieni UUID partizione EFI
+EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
+
+# Modifica fstab per EFI opzionale
+sed -i "/\/efi.*vfat/c\\UUID=${EFI_UUID}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
+
+--------------------------------------------------------------------------------------------------------------------------
+5. CHROOT NEL SISTEMA
+--------------------------------------------------------------------------------------------------------------------------
+
+arch-chroot /mnt
+
+--------------------------------------------------------------------------------------------------------------------------
+6. CONFIGURAZIONE MIRROR (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
+reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
+
+--------------------------------------------------------------------------------------------------------------------------
+7. ABILITAZIONE SERVIZI (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+systemctl enable NetworkManager
+systemctl mask NetworkManager-wait-online.service
+systemctl mask ldconfig.service
+systemctl mask geoclue
+
+--------------------------------------------------------------------------------------------------------------------------
+8. INSTALLAZIONE ZFS (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+# Aggiungi repository archzfs
+echo -e '
+[archzfs]
+Server = https://github.com/archzfs/archzfs/releases/download/experimental' >> /etc/pacman.conf
+
+# Importa chiavi GPG
+pacman-key -r DDF7DB817396A49B2A2723F7403BD972F75D9D76
+pacman-key --lsign-key DDF7DB817396A49B2A2723F7403BD972F75D9D76
+
+# Installa ZFS
+pacman -Syu --noconfirm --needed zfs-dkms
+
+# Abilita servizi ZFS
+systemctl enable zfs.target zfs-import-cache zfs-mount zfs-import.target
+
+# Configura keylocation
+zfs set keylocation=file:///etc/zfs/zroot.key zroot
+
+# Genera hostid
+zgenhostid -f
+
+--------------------------------------------------------------------------------------------------------------------------
+9. INSTALLAZIONE ZFSBOOTMENU (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+mkdir -p /efi/EFI/zbm
+wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI
+
+# Crea entry EFI
+efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
+    --loader '\EFI\zbm\zfsbootmenu.EFI' \
+    --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
+    --verbose
+
+# Imposta proprietà ZFS per boot
+zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid) rd.systemd.gpt_auto=0" zroot/ROOT/default
+
+--------------------------------------------------------------------------------------------------------------------------
+10. CONFIGURAZIONE SECURE BOOT (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+# Crea chiavi Secure Boot
+sbctl create-keys
+
+# Controlla se in Setup Mode e registra chiavi
+sbctl status
+sbctl enroll-keys -m    # Solo se in Setup Mode
+
+# Firma binario EFI
+sbctl sign -s /efi/EFI/zbm/zfsbootmenu.EFI
+
+--------------------------------------------------------------------------------------------------------------------------
+11. CONFIGURAZIONE DRACUT (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+cat > /etc/dracut.conf.d/99-zfs.conf <<EOF
+hostonly="yes"
+uefi="no"
+hostonly_cmdline="no"
+add_dracutmodules+=" zfs "
+i18n_vars+=" KEYMAP "
+install_items+=" /etc/zfs/zroot.key "
+compress="zstd"
+EOF
+
+# Trova versione kernel
+KERNEL_VERSION=$(ls /usr/lib/modules/ | grep lts | head -n1)
+
+# Genera initramfs
+dracut --force --hostonly --kver "$KERNEL_VERSION" /boot/initramfs-linux-lts.img
+
+--------------------------------------------------------------------------------------------------------------------------
+12. CONFIGURAZIONE ZRAM (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+cat > /etc/systemd/zram-generator.conf <<EOF
+[zram0]
+zram-size = min(ram, 32768)
+compression-algorithm = zstd
+EOF
+
+echo "vm.swappiness = 180" >> /etc/sysctl.d/99-vm-zram-parameters.conf
+echo "vm.watermark_boost_factor = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
+echo "vm.watermark_scale_factor = 125" >> /etc/sysctl.d/99-vm-zram-parameters.conf
+echo "vm.page-cluster = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
+
+sysctl --system
+
+--------------------------------------------------------------------------------------------------------------------------
+13. ABILITAZIONE MULTILIB (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+pacman -Syy
+
+--------------------------------------------------------------------------------------------------------------------------
+14. CONFIGURAZIONE SISTEMA (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+echo "$HOSTNAME" > /etc/hostname
+ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
+hwclock --systohc
+timedatectl set-ntp true
+sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
+echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
+echo "KEYMAP=us" > /etc/vconsole.conf
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
+--------------------------------------------------------------------------------------------------------------------------
+15. CREAZIONE UTENTE (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+useradd -m -G wheel -s /bin/bash "$USERNAME"
+passwd "$USERNAME"
+
+cat > /etc/sudoers.d/10-wheel <<EOF
+%wheel ALL=(ALL:ALL) ALL
+EOF
+chmod 0440 /etc/sudoers.d/10-wheel
+
+--------------------------------------------------------------------------------------------------------------------------
+16. PASSWORD ROOT (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+passwd root
+
+--------------------------------------------------------------------------------------------------------------------------
+17. AUDIO (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
+
+--------------------------------------------------------------------------------------------------------------------------
+18. DRIVER NVIDIA (dentro chroot) - Opzionale
+--------------------------------------------------------------------------------------------------------------------------
+
+pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
+
+--------------------------------------------------------------------------------------------------------------------------
+19. INSTALLAZIONE YAY (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+pacman -S --needed --noconfirm git go
+su - "$USERNAME" -c 'rm -rf /tmp/yay && git clone https://aur.archlinux.org/yay.git /tmp/yay && cd /tmp/yay && makepkg -s --noconfirm --needed'
+pacman -U --noconfirm /tmp/yay/yay-*.pkg.tar.*
+
+--------------------------------------------------------------------------------------------------------------------------
+20. SNAPSHOT PRE-DESKTOP (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+zfs snapshot "zroot/ROOT/default@pre-cosmic-wayland"
+
+--------------------------------------------------------------------------------------------------------------------------
+21. INSTALLAZIONE COSMIC DESKTOP (dentro chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+pacman -S --needed --noconfirm cosmic-session
+systemctl enable cosmic-greeter.service
+
+--------------------------------------------------------------------------------------------------------------------------
+22. USCITA DAL CHROOT E CLEANUP
+--------------------------------------------------------------------------------------------------------------------------
+
+exit  # Esci dal chroot
+
+umount -R /mnt
+zfs umount -a
+zpool export zroot
+
+--------------------------------------------------------------------------------------------------------------------------
+23. RIAVVIO
+--------------------------------------------------------------------------------------------------------------------------
+
+reboot
+
+MANUAL_INSTALLATION_GUIDE
