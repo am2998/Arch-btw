@@ -26,6 +26,17 @@ get_password() {
     done
 }
 
+prepare_pacman_keyring() {
+    echo "Preparing pacman keyring..."
+    timedatectl set-ntp true || true
+
+    if [ ! -f /etc/pacman.d/gnupg/pubring.kbx ]; then
+        pacman-key --init
+    fi
+
+    pacman-key --populate archlinux
+}
+
 select_install_disk() {
     local -a disks
     local index
@@ -94,7 +105,8 @@ echo -e "\n\n# -----------------------------------------------------------------
 echo -e "# Install base system"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-pacstrap /mnt linux-zen linux-zen-headers booster base linux-firmware zram-generator networkmanager amd-ucode efibootmgr
+prepare_pacman_keyring
+pacstrap -K /mnt linux-zen linux-zen-headers booster base linux-firmware zram-generator networkmanager amd-ucode efibootmgr
 
 
 echo -e "\n\n# --------------------------------------------------------------------------------------------------------------------------"

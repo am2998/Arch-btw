@@ -67,6 +67,21 @@ select_install_disk() {
     echo "Selected disk: $DISK"
 }
 
+prepare_pacman_keyring() {
+    echo "Preparing pacman keyring..."
+    timedatectl set-ntp true || true
+
+    if [ ! -f /etc/pacman.d/gnupg/pubring.kbx ]; then
+        pacman-key --init
+    fi
+
+    pacman-key --populate archlinux
+
+    if [ -f /usr/share/pacman/keyrings/archzfs.gpg ]; then
+        pacman-key --populate archzfs
+    fi
+}
+
 cleanup() {
     local exit_code=${1:-$?}
 
@@ -165,7 +180,8 @@ mount "${DISK}${PARTITION_1}" /mnt/efi
 
 print_header "Install base system"
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
+prepare_pacman_keyring
+pacstrap -K /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
 
 # --------------------------------------------------------------------------------------------------------------------------
 # FSTAB
@@ -574,7 +590,7 @@ mount "${DISK}${PARTITION_1}" /mnt/efi
 3. BASE SYSTEM INSTALLATION
 --------------------------------------------------------------------------------------------------------------------------
 
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
+pacstrap -K /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
 
 --------------------------------------------------------------------------------------------------------------------------
 4. FSTAB GENERATION
