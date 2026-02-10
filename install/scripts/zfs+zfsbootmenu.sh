@@ -221,6 +221,29 @@ set +o xtrace
 echo "Chrooted successfully!"
 
 # --------------------------------------------------------------------------------------------------------------------------
+# DNS
+# --------------------------------------------------------------------------------------------------------------------------
+
+print_header "Configure DNS"
+
+cat > /etc/resolv.conf <<'EOFDNS'
+nameserver 1.1.1.1
+EOFDNS
+
+echo "DNS configured to Cloudflare (1.1.1.1)."
+
+# --------------------------------------------------------------------------------------------------------------------------
+# MIRRORS
+# --------------------------------------------------------------------------------------------------------------------------
+
+print_header "Configure pacman mirrors"
+
+cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
+reflector --protocol https --latest 30 --fastest 20 --sort rate --save /etc/pacman.d/mirrorlist
+pacman -Syy
+
+
+# --------------------------------------------------------------------------------------------------------------------------
 # SERVICES
 # --------------------------------------------------------------------------------------------------------------------------
 
@@ -232,26 +255,6 @@ systemctl mask ldconfig.service
 systemctl mask geoclue
 
 echo "Services configured."
-
-# --------------------------------------------------------------------------------------------------------------------------
-# LOCALE
-# --------------------------------------------------------------------------------------------------------------------------
-
-print_header "Configure locale"
-
-echo "KEYMAP=us" > /etc/vconsole.conf
-echo "LANG=en_US.UTF-8" > /etc/locale.conf
-echo "Locale and keymap configured."
-
-# --------------------------------------------------------------------------------------------------------------------------
-# MIRRORS
-# --------------------------------------------------------------------------------------------------------------------------
-
-print_header "Configure pacman mirrors"
-
-cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-reflector --protocol https --latest 30 --fastest 20 --sort rate --save /etc/pacman.d/mirrorlist
-pacman -Syy
 
 # --------------------------------------------------------------------------------------------------------------------------
 # ZFS
@@ -375,16 +378,13 @@ pacman -Syy
 print_header "System config"
 
 echo "$HOSTNAME" > /etc/hostname
-
 ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
-
 hwclock --systohc
-
 timedatectl set-ntp true
-
 sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
-
 echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
+echo "KEYMAP=us" > /etc/vconsole.conf
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
 # --------------------------------------------------------------------------------------------------------------------------
 # USER
@@ -400,6 +400,19 @@ cat > /etc/sudoers.d/10-wheel <<'EOFSUDOERS'
 %wheel ALL=(ALL:ALL) ALL
 EOFSUDOERS
 chmod 0440 /etc/sudoers.d/10-wheel
+
+# --------------------------------------------------------------------------------------------------------------------------
+# ROOT PASSWORD
+# --------------------------------------------------------------------------------------------------------------------------
+
+print_header "Set root user password"
+
+chpasswd < "$ROOTPASS_FILE"
+shred -u "$ROOTPASS_FILE" || rm -f "$ROOTPASS_FILE"
+
+echo "Root password set."
+
+echo "Configuration completed successfully!"
 
 # --------------------------------------------------------------------------------------------------------------------------
 # AUDIO
@@ -434,17 +447,28 @@ fi
 pacman -U --noconfirm "${yay_pkgs[0]}"
 
 # --------------------------------------------------------------------------------------------------------------------------
-# ROOT PASSWORD
+# SNAPSHOTS
 # --------------------------------------------------------------------------------------------------------------------------
 
-print_header "Set root user password"
+print_header "Create pre-COSMIC ZFS snapshot"
 
-chpasswd < "$ROOTPASS_FILE"
-shred -u "$ROOTPASS_FILE" || rm -f "$ROOTPASS_FILE"
+SNAPSHOT_TAG="pre-cosmic-wayland"
+zfs snapshot "zroot/ROOT/default@${SNAPSHOT_TAG}"
+echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
 
-echo "Root password set."
+# --------------------------------------------------------------------------------------------------------------------------
+# COSMIC
+# --------------------------------------------------------------------------------------------------------------------------
 
-echo "Configuration completed successfully!"
+print_header "Install COSMIC desktop"
+
+pacman -S --needed --noconfirm cosmic-session
+
+if systemctl list-unit-files | grep -q '^cosmic-greeter\.service'; then
+    systemctl enable cosmic-greeter.service
+else
+    echo "cosmic-greeter.service not found; enable your preferred display manager manually."
+fi
 
 # --------------------------------------------------------------------------------------------------------------------------
 # INSTALLATION COMPLETED
