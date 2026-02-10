@@ -226,12 +226,9 @@ echo "Chrooted successfully!"
 
 print_header "Configure pacman mirrors"
 
-echo "nameserver 1.1.1.1" > /etc/resolv.conf
-
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
 
-reflector --protocol https --country Italy --age 72 --latest 15 --fastest 5 \
-    --sort rate --save /etc/pacman.d/mirrorlist
+reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 
 # Verify reflector actually produced a valid mirrorlist
 if ! grep -q '^Server' /etc/pacman.d/mirrorlist; then
