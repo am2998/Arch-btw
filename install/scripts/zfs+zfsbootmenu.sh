@@ -203,7 +203,7 @@ printf '%s:%s\n' "$USERNAME" "$USERPASS" > "$USERPASS_FILE"
 unset ROOTPASS
 unset USERPASS
 
-arch-chroot /mnt \
+if ! arch-chroot /mnt \
     /usr/bin/env DISK="$DISK" PARTITION_1="$PARTITION_1" HOSTNAME="$HOSTNAME" USERNAME="$USERNAME" ROOTPASS_FILE="/root/.arch-rootpass" USERPASS_FILE="/root/.arch-userpass" \
     /bin/bash --noprofile --norc -euo pipefail <<'EOF'
 
@@ -229,7 +229,19 @@ print_header "Configure pacman mirrors"
 echo "nameserver 1.1.1.1" > /etc/resolv.conf
 
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-reflector --protocol https --country Italy --age 24 --latest 15 --fastest 5 --sort rate --save /etc/pacman.d/mirrorlist 
+
+reflector --protocol https --country Italy --age 72 --latest 15 --fastest 5 \
+    --sort rate --save /etc/pacman.d/mirrorlist
+
+# Verify reflector actually produced a valid mirrorlist
+if ! grep -q '^Server' /etc/pacman.d/mirrorlist; then
+    echo "WARNING: reflector produced no mirrors, restoring backup"
+    cp /etc/pacman.d/mirrorlist.backup /etc/pacman.d/mirrorlist
+fi
+
+echo "Active mirrors:"
+grep '^Server' /etc/pacman.d/mirrorlist
+
 pacman -Syy
 
 
@@ -460,6 +472,14 @@ systemctl enable cosmic-greeter.service
 # --------------------------------------------------------------------------------------------------------------------------
 
 EOF
+then
+    echo
+    echo "Chroot configuration failed."
+    echo "Opening an interactive rescue shell inside chroot (/mnt)."
+    arch-chroot /mnt /bin/bash -i || true
+    echo "Rescue shell closed. Installation will now stop and cleanup will run."
+    exit 1
+fi
 
 print_header "Unmount and prepare for reboot"
 
