@@ -247,7 +247,7 @@ echo "Locale and keymap configured."
 # MIRRORS
 # --------------------------------------------------------------------------------------------------------------------------
 
-print_header "Configure pacman mirrors (Italy)"
+print_header "Configure pacman mirrors"
 
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
 reflector --protocol https --latest 30 --fastest 20 --sort rate --save /etc/pacman.d/mirrorlist
