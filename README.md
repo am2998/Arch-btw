@@ -19,8 +19,9 @@ Use them only if you fully understand what they do and after creating complete b
 ├── install
 │   ├── pacman-hooks
 │   │   ├── 50-zfs-snapshot-pre.hook
+│   │   ├── 60-zfs-dracut-post.hook
+│   │   ├── zfs-dracut-kernel-refresh.sh
 │   │   ├── zfs-pacman-snapshot.sh
-│   │   ├── .bashrc
 │   │   └── README.md
 │   └── scripts
 │       ├── btrfs+luks+lvm+systemdboot.sh
@@ -59,7 +60,7 @@ Target setup:
 - KDE-oriented desktop package set
 
 What it does (summary):
-- detects disk (`/dev/nvme0n1` or `/dev/sda`)
+- detects disk automatically (`/dev/nvme0n1` or `/dev/sda`)
 - removes existing VG/PV and partition table
 - creates and configures LUKS + LVM + Btrfs
 - installs base system with `pacstrap`
@@ -84,14 +85,14 @@ Target setup:
 - GPT + EFI (1 GiB)
 - EXT4 root filesystem
 - EFISTUB boot (with `linux-zen` + booster)
-- Hyprland-oriented desktop stack
+- minimal base install with audio/NVIDIA components
 
 What it does (summary):
 - partitions and formats disk
 - installs base system with `linux-zen`
 - configures zram, locale, hostname, mirrors, multilib
 - creates UEFI entry via `efibootmgr`
-- installs Hyprland, audio components, NVIDIA drivers, base utilities
+- installs audio components and NVIDIA drivers
 
 Run:
 
@@ -101,25 +102,28 @@ chmod +x install/scripts/ext4+efistub.sh
 ```
 
 Important notes:
-- interactive script (user/password/hostname)
-- includes external downloads (dotfiles setup)
-- changes services and enables autologin on `tty1`
+- interactive script (root password + hostname)
+- prompts for disk selection before wiping
+- installs `linux-zen` + `booster` and creates an EFISTUB boot entry
+- does not create a non-root user account
 
 ### 3) `install/scripts/zfs+zfsbootmenu.sh`
 
 Target setup:
 - GPT + EFI
 - ZFS pool `zroot`
-- separate datasets for root and home
+- encrypted root dataset (`zroot/ROOT/default`)
 - ZFSBootMenu bootloader
 
 What it does (summary):
-- interactive disk selection with explicit confirmation
+- interactive disk selection
 - disk wipe and ZFS pool/dataset creation
 - base install (`linux-lts`) and system configuration
-- ZFS repo/package setup + mkinitcpio ZFS hooks
+- ZFS repo/package setup + dracut configuration for ZFS boot
 - ZFSBootMenu UEFI entry installation
-- base snapshot creation (`@base`)
+- Secure Boot key handling/signing via `sbctl`
+- creates snapshot `zroot/ROOT/default@pre-cosmic-wayland`
+- installs COSMIC session and enables `cosmic-greeter.service`
 
 Run:
 
