@@ -676,7 +676,7 @@ sbctl create-keys
 
 # If in Setup Mode, enroll keys
 sbctl status
-sbctl enroll-keys -m    # Solo se in Setup Mode
+sbctl enroll-keys -m 
 
 # Sign EFI binary
 sbctl sign -s /efi/EFI/zbm/zfsbootmenu.EFI
