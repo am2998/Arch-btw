@@ -1,0 +1,169 @@
+name: Build Arch ISO with LTS Kernel and ZFS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 14 15 * *'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    outputs:
+      release_date: ${{ steps.build-step.outputs.RELEASE_DATE }}
+      kernel_version: ${{ steps.build-step.outputs.KERNEL_VERSION }}
+      zfs_version: ${{ steps.build-step.outputs.ZFS_VERSION }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: build
+        id: build-step
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kernel=linux-lts
+          name=archlinux-lts-zfs
+          build="$PWD/$name"
+          build_out="$build/out"
+          release_date=$(date +'%Y.%m.%d')
+          echo "RELEASE_DATE=$release_date" >> "${GITHUB_ENV}"
+          echo "BUILD_OUTPUT_DIR=$build_out" >> "${GITHUB_ENV}"
+
+          pacman -Syy --noconfirm
+          pacman -Q archiso >/dev/null 2>&1 || pacman -S --noconfirm archiso
+          pacman -Q libisoburn >/dev/null 2>&1 || pacman -S --noconfirm libisoburn
+          pacman -Q mtools >/dev/null 2>&1 || pacman -S --noconfirm mtools
+          pacman -Q curl >/dev/null 2>&1 || pacman -S --noconfirm curl
+
+          cp -r /usr/share/archiso/configs/releng "$build"
+
+          sed -i "s/^linux$/$kernel/" "$build/packages.x86_64"
+
+          pkg_add=(
+            "zfs-$kernel"
+            "$kernel-headers"
+          )
+          for a in "${pkg_add[@]}"; do
+            echo "$a" >> "$build/packages.x86_64"
+          done
+
+          pkg_rmv=(
+            broadcom-wl
+            b43-fwcutter
+          )
+          for a in "${pkg_rmv[@]}"; do
+            sed -i "/$a/d" "$build/packages.x86_64"
+          done
+
+          # Include your installation assets inside the live ISO.
+          install -Dm755 "install/scripts/zfs+zfsbootmenu.sh" "$build/airootfs/root/zfs+zfsbootmenu.sh"
+
+          cd "$build/airootfs/etc/mkinitcpio.d"
+          mv linux.preset "$kernel.preset"
+          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" "$kernel.preset"
+          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" "$kernel.preset"
+
+          cd "$build/syslinux"
+          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" archiso_sys-linux.cfg
+          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" archiso_sys-linux.cfg
+          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" archiso_pxe-linux.cfg
+          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" archiso_pxe-linux.cfg
+
+          cd "$build/efiboot/loader/entries"
+          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" 01-archiso-linux.conf
+          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" 01-archiso-linux.conf
+          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" 02-archiso-speech-linux.conf
+          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" 02-archiso-speech-linux.conf
+
+          cp "$build/pacman.conf" "$build/airootfs/etc/pacman.conf"
+          mkdir -p "$build/airootfs/usr/share/pacman/keyrings"
+          echo -e "\n[archzfs]\nSigLevel = Never\nServer = https://github.com/archzfs/archzfs/releases/download/experimental" >> "$build/pacman.conf"
+          echo -e "\n[archzfs]\nServer = https://github.com/archzfs/archzfs/releases/download/experimental" >> "$build/airootfs/etc/pacman.conf"
+          echo -e "3A9917BF0DED5C13F69AC68FABEC0A1208037BE9:4:" >> "$build/airootfs/usr/share/pacman/keyrings/archzfs-trusted"
+          echo -e "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEZwfegRYJKwYBBAHaRw8BAQdApTEe98tOu58rF+0NUGXXx/VxenWgb0VjnvBx\niSEYUcK0LEFyY2haRlMgUHJvamVjdCAoaHR0cHM6Ly9naXRodWIuY29tL2FyY2h6\nZnMpiJgEExYKAEAWIQQ6mRe/De1cE/aaxo+r7AoSCAN76QUCZwfegQIbAwsLCQoN\nCAwHCwQDAgcVCgkICwIDBRYCAwEAAh4FAheAAAoJEKvsChIIA3vpfFAA/2XBSvSt\nhopEFZOqY25peeXAXfl7ufCXolvGEE9iSh1sAQDm08strIIy0SNZtMtWg7r70tCw\n7I6z1M7liy+rfgLBDw==\n=SxXd\n-----END PGP PUBLIC KEY BLOCK-----" >> "$build/airootfs/usr/share/pacman/keyrings/archzfs.gpg"
+
+          cat > "$build/airootfs/etc/motd" <<'EOF'
+
+\t\033[1m Welcome to Arch Linux LTS with OpenZFS \033[0m
+
+Installer script included at: /root/zfs+zfsbootmenu.sh
+EOF
+
+          profile="$build/profiledef.sh"
+          sed -i "s/iso_name=\"archlinux\"/iso_name=\"archlinux-lts-zfs\"/" "$profile"
+          sed -i "s/iso_label=\"ARCH_\$(date +%Y%m)\"/iso_label=\"ArchLTSZFS_\$(date +%Y-%m-%d)\"/" "$profile"
+          sed -i "/choose-mirror/d" "$profile"
+
+          [ -d "/tmp/$name" ] && cd /tmp && rm -rf "$name"
+          mkarchiso -v -w "/tmp/$name" -o "$build_out" "$build"
+
+          cd "$build_out"
+          ls -alh
+          mkdir extracted && cd extracted
+          osirrox -indev "../archlinux-lts-zfs-$release_date-x86_64.iso" -extract_boot_images ./ -extract /EFI/BOOT/BOOTx64.EFI loader.efi
+          curl -o BOOTx64.EFI https://blog.hansenpartnership.com/wp-uploads/2013/PreLoader.efi
+          curl -o HashTool.efi https://blog.hansenpartnership.com/wp-uploads/2013/HashTool.efi
+          mcopy -D oO -i eltorito_img2_uefi.img BOOTx64.EFI loader.efi HashTool.efi ::/EFI/BOOT/
+          xorriso -indev ../archlinux-lts-zfs-$release_date-x86_64.iso -outdev archlinux-lts-zfs-sb-$release_date-x86_64.iso -map_l ./ /EFI/BOOT/ BOOTx64.EFI loader.efi HashTool.efi -- -boot_image any replay -append_partition 2 0xef eltorito_img2_uefi.img
+          mv archlinux-lts-zfs-sb-$release_date-x86_64.iso ../archlinux-lts-zfs-$release_date-x86_64.iso
+          cd .. && rm -rf extracted
+
+          sha256sum archlinux-lts-zfs-$release_date-x86_64.iso > archlinux-lts-zfs-$release_date-x86_64.iso.sha256
+
+          echo "KERNEL_VERSION=$(chroot /tmp/$name/x86_64/airootfs pacman -Q linux-lts | sed 's/\s\+/:/')" >> "${GITHUB_OUTPUT}"
+          echo "ZFS_VERSION=$(chroot /tmp/$name/x86_64/airootfs pacman -Q zfs-linux-lts | sed 's/\s\+/:/')" >> "${GITHUB_OUTPUT}"
+          echo "RELEASE_DATE=$release_date" >> "${GITHUB_OUTPUT}"
+
+      - name: upload-iso
+        uses: actions/upload-artifact@v4
+        with:
+          name: archlinux-lts-zfs-${{ env.RELEASE_DATE }}-x86_64.iso
+          path: ${{ env.BUILD_OUTPUT_DIR }}/archlinux-lts-zfs-${{ env.RELEASE_DATE }}-x86_64.iso
+          retention-days: 1
+
+      - name: upload-sha
+        uses: actions/upload-artifact@v4
+        with:
+          name: archlinux-lts-zfs-${{ env.RELEASE_DATE }}-x86_64.iso.sha256
+          path: ${{ env.BUILD_OUTPUT_DIR }}/archlinux-lts-zfs-${{ env.RELEASE_DATE }}-x86_64.iso.sha256
+          retention-days: 1
+
+  download-and-publish:
+    runs-on: ubuntu-latest
+    needs: build-and-upload
+    strategy:
+      matrix:
+        include:
+          - artifact_name: archlinux-lts-zfs-${{ needs.build-and-upload.outputs.release_date }}-x86_64.iso
+            file: archlinux-lts-zfs-${{ needs.build-and-upload.outputs.release_date }}-x86_64.iso
+          - artifact_name: archlinux-lts-zfs-${{ needs.build-and-upload.outputs.release_date }}-x86_64.iso.sha256
+            file: archlinux-lts-zfs-${{ needs.build-and-upload.outputs.release_date }}-x86_64.iso.sha256
+    steps:
+      - name: download
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ./
+
+      - name: verify
+        shell: bash
+        run: |
+          ls -alh
+
+      - name: publish
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./${{ matrix.file }}
+          asset_name: ${{ matrix.file }}
+          tag: ${{ needs.build-and-upload.outputs.release_date }}
+          body: "Packages: ${{ needs.build-and-upload.outputs.kernel_version }} & ${{ needs.build-and-upload.outputs.zfs_version }}"
+          overwrite: true
+          file_glob: false
