@@ -47,8 +47,9 @@ jobs:
           sed -i "s/^linux$/$kernel/" "$build/packages.x86_64"
 
           pkg_add=(
-            "zfs-$kernel"
+            "zfs-dkms"
             "$kernel-headers"
+            "iptables-nft"
           )
           for a in "${pkg_add[@]}"; do
             echo "$a" >> "$build/packages.x86_64"
@@ -114,7 +115,7 @@ jobs:
           sha256sum archlinux-lts-zfs-$release_date-x86_64.iso > archlinux-lts-zfs-$release_date-x86_64.iso.sha256
 
           echo "KERNEL_VERSION=$(chroot /tmp/$name/x86_64/airootfs pacman -Q linux-lts | sed 's/\s\+/:/')" >> "${GITHUB_OUTPUT}"
-          echo "ZFS_VERSION=$(chroot /tmp/$name/x86_64/airootfs pacman -Q zfs-linux-lts | sed 's/\s\+/:/')" >> "${GITHUB_OUTPUT}"
+          echo "ZFS_VERSION=$(chroot /tmp/$name/x86_64/airootfs pacman -Q zfs-dkms | sed 's/\s\+/:/')" >> "${GITHUB_OUTPUT}"
           echo "RELEASE_DATE=$release_date" >> "${GITHUB_OUTPUT}"
 
       - name: upload-iso
