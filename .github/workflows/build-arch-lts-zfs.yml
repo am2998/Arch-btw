@@ -63,8 +63,8 @@ jobs:
           done
 
           # Include your installation assets inside the live ISO.
-          install -Dm755 "install/scripts/zfs+zfsbootmenu.sh" "$build/airootfs/root/zfs+zfsbootmenu.sh"
-          chmod +x "$build/airootfs/root/zfs+zfsbootmenu.sh"
+          install -Dm755 "install/scripts/zfs-zfsbootmenu.sh" "$build/airootfs/root/zfs-zfsbootmenu.sh"
+          chmod +x "$build/airootfs/root/zfs-zfsbootmenu.sh"
 
           cd "$build/airootfs/etc/mkinitcpio.d"
           mv linux.preset "$kernel.preset"
@@ -90,7 +90,7 @@ jobs:
           echo -e "3A9917BF0DED5C13F69AC68FABEC0A1208037BE9:4:" >> "$build/airootfs/usr/share/pacman/keyrings/archzfs-trusted"
           echo -e "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEZwfegRYJKwYBBAHaRw8BAQdApTEe98tOu58rF+0NUGXXx/VxenWgb0VjnvBx\niSEYUcK0LEFyY2haRlMgUHJvamVjdCAoaHR0cHM6Ly9naXRodWIuY29tL2FyY2h6\nZnMpiJgEExYKAEAWIQQ6mRe/De1cE/aaxo+r7AoSCAN76QUCZwfegQIbAwsLCQoN\nCAwHCwQDAgcVCgkICwIDBRYCAwEAAh4FAheAAAoJEKvsChIIA3vpfFAA/2XBSvSt\nhopEFZOqY25peeXAXfl7ufCXolvGEE9iSh1sAQDm08strIIy0SNZtMtWg7r70tCw\n7I6z1M7liy+rfgLBDw==\n=SxXd\n-----END PGP PUBLIC KEY BLOCK-----" >> "$build/airootfs/usr/share/pacman/keyrings/archzfs.gpg"
 
-          printf '\033[1m Welcome to Arch Linux LTS with OpenZFS \033[0m\n\nInstaller script included at: /root/zfs+zfsbootmenu.sh\n' > "$build/airootfs/etc/motd"
+          printf '\033[1m Welcome to Arch Linux LTS with OpenZFS \033[0m\n\nInstaller script included at: /root/zfs-zfsbootmenu.sh\n' > "$build/airootfs/etc/motd"
 
           profile="$build/profiledef.sh"
           sed -i "s/iso_name=\"archlinux\"/iso_name=\"archlinux-lts-zfs\"/" "$profile"

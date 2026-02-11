@@ -26,7 +26,7 @@ Use them only if you fully understand what they do and after creating complete b
 │   └── scripts
 │       ├── btrfs+luks+lvm+systemdboot.sh
 │       ├── ext4+efistub.sh
-│       └── zfs+zfsbootmenu.sh
+│       └── zfs-zfsbootmenu.sh
 ├── LICENSE
 └── README.md
 ```
@@ -107,7 +107,7 @@ Important notes:
 - installs `linux-zen` + `booster` and creates an EFISTUB boot entry
 - does not create a non-root user account
 
-### 3) `install/scripts/zfs+zfsbootmenu.sh`
+### 3) `install/scripts/zfs-zfsbootmenu.sh`
 
 Target setup:
 - GPT + EFI
@@ -128,8 +128,8 @@ What it does (summary):
 Run:
 
 ```bash
-chmod +x install/scripts/zfs+zfsbootmenu.sh
-./install/scripts/zfs+zfsbootmenu.sh
+chmod +x install/scripts/zfs-zfsbootmenu.sh
+./install/scripts/zfs-zfsbootmenu.sh
 ```
 
 Useful characteristics:
