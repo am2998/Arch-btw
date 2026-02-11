@@ -315,12 +315,10 @@ if [ ! -f /usr/share/secureboot/keys/db/db.key ]; then
     sbctl create-keys
 fi
 
-if sbctl status | grep -q '^Installed:[[:space:]]*✓'; then
-    echo "Secure Boot keys already enrolled."
-elif sbctl status | grep -q '^Setup Mode:[[:space:]]*✓'; then
+if sbctl status | grep -q '^Setup Mode:[[:space:]]*✓'; then
     sbctl enroll-keys -m
 else
-    echo "Firmware is not in Setup Mode; skipping key enrollment."
+    echo "Setup Mode is disabled; skipping key enrollment."
 fi
 
 # Sign the EFI binary so it can boot with Secure Boot enabled.
