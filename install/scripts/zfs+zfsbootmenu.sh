@@ -273,6 +273,7 @@ print_header "Setup ZFS"
 if ! grep -q '^\[archzfs\]' /etc/pacman.conf; then
     echo -e '
 [archzfs]
+SigLevel = TrustAll Optional
 Server = https://github.com/archzfs/archzfs/releases/download/experimental' >> /etc/pacman.conf
 fi
 
@@ -629,6 +630,7 @@ systemctl mask geoclue
 # Add archzfs repository
 echo -e '
 [archzfs]
+SigLevel = TrustAll Optional
 Server = https://github.com/archzfs/archzfs/releases/download/experimental' >> /etc/pacman.conf
 
 # Import GPG keys
