@@ -323,6 +323,7 @@ fi
 
 # Sign the EFI binary so it can boot with Secure Boot enabled.
 sbctl sign -s /efi/EFI/zbm/zfsbootmenu.EFI
+echo "ZFSBootMenu EFI signed"
 
 # --------------------------------------------------------------------------------------------------------------------------
 # DRACUT
