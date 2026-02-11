@@ -232,7 +232,7 @@ print_header "Configure pacman mirrors"
 
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
 
-reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
+reflector --country "Italy,Germany,France,Netherlands,Switzerland,Austria" --latest 20 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 
 # Verify reflector actually produced a valid mirrorlist
 if ! grep -q '^Server' /etc/pacman.d/mirrorlist; then
@@ -604,7 +604,7 @@ arch-chroot /mnt
 --------------------------------------------------------------------------------------------------------------------------
 
 cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-reflector --country "Italy" --latest 10 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
+reflector --country "Italy,Germany,France,Netherlands,Switzerland,Austria" --latest 20 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
 
 --------------------------------------------------------------------------------------------------------------------------
 7. ENABLE SERVICES (inside chroot)
