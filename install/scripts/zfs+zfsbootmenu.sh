@@ -67,17 +67,6 @@ select_install_disk() {
     echo "Selected disk: $DISK"
 }
 
-prepare_pacman_keyring() {
-    echo "Preparing pacman keyring..."
-    timedatectl set-ntp true || true
-
-    if [ ! -f /etc/pacman.d/gnupg/pubring.kbx ]; then
-        pacman-key --init
-    fi
-
-    pacman-key --populate archlinux
-}
-
 cleanup() {
     local exit_code=${1:-$?}
 
@@ -135,6 +124,7 @@ print_header "zpool and dataset creation"
 
 # Use a key file so dracut can auto-unlock after ZFSBootMenu unlock.
 ZFS_KEYFILE="/tmp/arch-zfs.key"
+PREV_UMASK="$(umask)"
 umask 077
 printf '%s' "$ZFS_PASS" > "$ZFS_KEYFILE"
 zpool create \
@@ -145,6 +135,7 @@ zpool create \
     -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation="file://$ZFS_KEYFILE" \
     -R /mnt zroot ${DISK}${PARTITION_2} -f  
 rm -f "$ZFS_KEYFILE"
+umask "$PREV_UMASK"
 echo "ZFS pool created successfully."
 
 # Dataset layout
@@ -162,8 +153,10 @@ zfs mount -a
 mkdir -p /mnt/etc/zfs  
 zpool set cachefile=/etc/zfs/zpool.cache zroot  
 cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache  
+PREV_UMASK="$(umask)"
 umask 077
 printf '%s' "$ZFS_PASS" > /mnt/etc/zfs/zroot.key
+umask "$PREV_UMASK"
 unset ZFS_PASS
 
 mkfs.fat -F32 "${DISK}${PARTITION_1}"  
@@ -176,8 +169,7 @@ mount "${DISK}${PARTITION_1}" /mnt/efi
 
 print_header "Install base system"
 
-prepare_pacman_keyring
-pacstrap -K /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
 
 # --------------------------------------------------------------------------------------------------------------------------
 # FSTAB
@@ -227,8 +219,8 @@ error_exit() {
 }
 
 # Safety: ensure we don't echo each input line (bash verbose mode)
-set +o verbose
-set +o xtrace
+set +o verbose || true
+set +o xtrace || true
 
 echo "Chrooted successfully!"
 
@@ -587,7 +579,7 @@ mount "${DISK}${PARTITION_1}" /mnt/efi
 3. BASE SYSTEM INSTALLATION
 --------------------------------------------------------------------------------------------------------------------------
 
-pacstrap -K /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
+pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
 
 --------------------------------------------------------------------------------------------------------------------------
 4. FSTAB GENERATION
