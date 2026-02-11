@@ -27,17 +27,6 @@ get_password() {
     done
 }
 
-prepare_pacman_keyring() {
-    echo "Preparing pacman keyring..."
-    timedatectl set-ntp true || true
-
-    if [ ! -f /etc/pacman.d/gnupg/pubring.kbx ]; then
-        pacman-key --init
-    fi
-
-    pacman-key --populate archlinux
-}
-
 echo -ne "\n\nEnter the username: "; read -r USER
 get_password "Enter the password for user $USER" USERPASS
 get_password "Enter the password for user root" ROOTPASS
@@ -146,7 +135,6 @@ echo -e "\n\n# -----------------------------------------------------------------
 echo -e "# Install base system"
 echo -e "# --------------------------------------------------------------------------------------------------------------------------\n"
 
-prepare_pacman_keyring
 pacstrap -K /mnt linux base base-devel linux-firmware lvm2 btrfs-progs zram-generator reflector sudo networkmanager amd-ucode
 
 
