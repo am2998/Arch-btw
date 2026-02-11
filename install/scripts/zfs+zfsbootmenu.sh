@@ -343,6 +343,7 @@ KERNEL_VERSION=$(ls /usr/lib/modules/ | grep lts | head -n1)
 
 # Generate traditional initramfs
 dracut --force --hostonly --kver "$KERNEL_VERSION" /boot/initramfs-linux-lts.img
+echo "Dracut configuration completed (kernel: $KERNEL_VERSION)."
 
 # --------------------------------------------------------------------------------------------------------------------------
 # ZRAM
@@ -401,6 +402,7 @@ cat > /etc/sudoers.d/10-wheel <<'EOFSUDOERS'
 %wheel ALL=(ALL:ALL) ALL
 EOFSUDOERS
 chmod 0440 /etc/sudoers.d/10-wheel
+echo "User account '$USERNAME' created and sudo access configured."
 
 # --------------------------------------------------------------------------------------------------------------------------
 # ROOT PASSWORD
