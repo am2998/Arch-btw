@@ -8,7 +8,7 @@ These scripts were created for personal use and published only as reference; I a
 
 ## Main Installer
 
-- `install/scripts/zfs-zfsbootmenu.sh`
+- `install/scripts/archzfs.sh`
 
 ## Quick Use
 
@@ -27,6 +27,6 @@ sync
 
 4. Boot USB and run installer:
 ```bash
-chmod +x /root/zfs-zfsbootmenu.sh
-/root/zfs-zfsbootmenu.sh
+chmod +x /root/archzfs.sh
+/root/archzfs.sh
 ```
