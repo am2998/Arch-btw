@@ -453,9 +453,9 @@ pacman -U --noconfirm "${yay_pkgs[0]}"
 # SNAPSHOTS
 # --------------------------------------------------------------------------------------------------------------------------
 
-print_header "Create pre-COSMIC ZFS snapshot"
+print_header "Create ZFS snapshot before installing desktop environment"
 
-SNAPSHOT_TAG="pre-cosmic-wayland"
+SNAPSHOT_TAG="base"
 zfs snapshot "zroot/ROOT/default@${SNAPSHOT_TAG}"
 echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
 
