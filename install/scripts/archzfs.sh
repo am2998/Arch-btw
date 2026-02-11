@@ -4,6 +4,10 @@
 
 set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
+# Ensure pacman keyring is initialized in fresh live environments.
+pacman-key --init
+pacman-key --populate
+
 # --------------------------------------------------------------------------------------------------------------------------
 # HELPER FUNCTIONS
 # --------------------------------------------------------------------------------------------------------------------------
@@ -51,7 +55,7 @@ select_install_disk() {
         printf "  %d. %s\n" "$((index + 1))" "${disks[$index]}"
     done
 
-    read -r -p "\nSelect target disk number: " selection
+    read -r -p "Select target disk number: " selection
     [[ "$selection" =~ ^[0-9]+$ ]]  
     [ "$selection" -ge 1 ] && [ "$selection" -le "${#disks[@]}" ]  
 
@@ -64,6 +68,7 @@ select_install_disk() {
         PARTITION_2="2"
     fi
 
+    echo
     echo "Selected disk: $DISK"
 }
 
