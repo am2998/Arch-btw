@@ -76,10 +76,6 @@ prepare_pacman_keyring() {
     fi
 
     pacman-key --populate archlinux
-
-    if [ -f /usr/share/pacman/keyrings/archzfs.gpg ]; then
-        pacman-key --populate archzfs
-    fi
 }
 
 cleanup() {

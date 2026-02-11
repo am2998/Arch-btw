@@ -64,7 +64,6 @@ jobs:
 
           # Include your installation assets inside the live ISO.
           install -Dm755 "install/scripts/zfs+zfsbootmenu.sh" "$build/airootfs/root/zfs+zfsbootmenu.sh"
-          chmod +x "$build/airootfs/root/zfs+zfsbootmenu.sh"
 
           cd "$build/airootfs/etc/mkinitcpio.d"
           mv linux.preset "$kernel.preset"
