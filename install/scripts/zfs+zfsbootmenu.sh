@@ -794,7 +794,7 @@ systemctl enable cosmic-greeter.service
 22. INSTALL APPLICATIONS (inside chroot)
 --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --needed --noconfirm ghostty spotify-launcher steam discord flatpak
+pacman -S --needed --noconfirm ghostty spotify-launcher steam discord flatpak fzf eza zsh
 
 --------------------------------------------------------------------------------------------------------------------------
 23. EXIT CHROOT AND CLEANUP
