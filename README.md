@@ -16,6 +16,7 @@ The script is created for personal use and published only as reference; I assume
 ## Backup Section
 
 This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
+Only the `src/scripts/archzfs.sh` script is actively maintained.
 
 
 ## Installation Methods
