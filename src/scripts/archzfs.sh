@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Arch Linux + ZFS + ZFSBootMenu
+# Arch Linux + Encrypted ZFS + ZFSBootMenu + Dracut + Secure Boot
 
 set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
@@ -87,6 +87,10 @@ cleanup() {
         echo "Cleanup completed after error."
     fi
 }
+
+# --------------------------------------------------------------------------------------------------------------------------
+# START INSTALLATION
+# --------------------------------------------------------------------------------------------------------------------------
 
 echo -e "\n=== Arch Linux ZFS Installation ==="
 echo -e "This script will ERASE all data on the selected disk!\n"
