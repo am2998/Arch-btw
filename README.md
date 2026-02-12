@@ -16,8 +16,6 @@ The script is created for personal use and published only as reference; I assume
 ## Backup Section
 
 This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
-Only the `src/scripts/archzfs.sh` script is actively maintained.
-
 
 ## Installation Methods
 
@@ -28,6 +26,10 @@ There are three ways to install Arch Linux with ZFS using this repository:
 2. **Via Manual Commands**: Copy the commands from the manual section at the bottom of the `archzfs.sh` script file and execute them manually step by step. This gives you full control over each installation step.
 
 3. **Via ISO (Recommended)**: Download the pre-built ISO from the Releases section, which includes the script and a live environment ready for installation.
+
+<br>
+
+**Note**: By default, the script installs the Cosmic desktop environment along with some applications. A ZFS snapshot is created first, allowing you to rollback and choose alternative desktop environments or applications if desired.
 
 ## Quick Start (using ISO)
 
