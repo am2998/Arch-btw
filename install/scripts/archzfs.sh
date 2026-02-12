@@ -478,8 +478,8 @@ systemctl enable cosmic-greeter.service
 
 print_header "Install additional applications"
 
-pacman -S --needed --noconfirm ghostty spotify-launcher steam flatpak
-echo "Additional applications installed: ghostty spotify-launcher steam flatpak"
+pacman -S --needed --noconfirm ghostty spotify-launcher steam flatpak fzf eza zsh
+echo "Additional applications installed: ghostty spotify-launcher steam flatpak fzf eza zsh"
 
 # --------------------------------------------------------------------------------------------------------------------------
 # INSTALLATION COMPLETED
