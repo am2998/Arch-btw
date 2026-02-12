@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Arch Linux + ZFS + ZFSBootMenu
+# Arch Linux + Encrypted ZFS + ZFSBootMenu + Dracut + Secure Boot
 
 set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
