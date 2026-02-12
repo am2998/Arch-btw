@@ -1,6 +1,6 @@
 # Arch-btw
 
-Experimental Arch Linux install assets.
+Experimental Arch Linux ZFS installation ISO/script.
 
 ## Credits
 
@@ -9,7 +9,11 @@ This github workflow builds on the work by r-maerz:
 
 ## Warning
 
-These scripts were created for personal use and published only as reference; I assume no responsibility for any damage or data loss.
+The script is created for personal use and published only as reference; I assume no responsibility for any damage or data loss.
+
+## Backup Section
+
+This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
 
 ## Main Installer
 
