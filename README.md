@@ -4,7 +4,7 @@ Experimental Arch Linux install assets.
 
 ## Credits
 
-This workflow builds on the work by r-maerz:
+This github workflow builds on the work by r-maerz:
 - https://github.com/r-maerz/archlinux-lts-zfs
 
 ## Warning
