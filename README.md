@@ -1,5 +1,7 @@
 # Arch-btw
 
+![Arch Linux Logo](assets/Archlinux-logo-standard-version.png)
+
 Experimental Arch Linux ZFS installation ISO/script.
 
 ## Credits
@@ -15,11 +17,18 @@ The script is created for personal use and published only as reference; I assume
 
 This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
 
-## Main Installer
 
-- `install/scripts/archzfs.sh`
+## Installation Methods
 
-## Quick Use
+There are three ways to install Arch Linux with ZFS using this repository:
+
+1. **Via Script**: Run the `archzfs.sh` script directly on an existing Arch Linux system. This assumes you have a compatible environment set up.
+
+2. **Via Manual Commands**: Copy the commands from the manual section at the bottom of the `archzfs.sh` script file and execute them manually step by step. This gives you full control over each installation step.
+
+3. **Via ISO (Recommended)**: Download the pre-built ISO from the Releases section, which includes the script and a live environment ready for installation.
+
+## Quick Start (using ISO)
 
 1. Download latest ISO + checksum from Releases:
 

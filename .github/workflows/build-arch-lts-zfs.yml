@@ -64,7 +64,7 @@ jobs:
           done
 
           # Include your installation assets inside the live ISO.
-          install -Dm755 "install/scripts/archzfs.sh" "$build/airootfs/root/archzfs.sh"
+          install -Dm755 "src/scripts/archzfs.sh" "$build/airootfs/root/archzfs.sh"
           chmod +x "$build/airootfs/root/archzfs.sh"
 
           cd "$build/airootfs/etc/mkinitcpio.d"
