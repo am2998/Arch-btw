@@ -82,3 +82,11 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 
 #### Desktop Environment ####
 - Default: COSMIC plus selected applications. A ZFS snapshot named `zroot/ROOT/default@base` is created first, so you can roll back and choose a different DE or app set if desired.
+
+#### Audio ####
+- Audio stack: PipeWire with WirePlumber session manager.
+- Packages installed: `wireplumber`, `pipewire-pulse`, `pipewire-alsa`, `pavucontrol-qt`, `alsa-utils`.
+
+#### NVIDIA Drivers ####
+- Driver path in script: proprietary NVIDIA Open kernel module variant for LTS kernel.
+- Packages installed: `nvidia-open-lts`, `nvidia-settings`, `nvidia-utils`, `opencl-nvidia`, `libxnvctrl`, `egl-wayland`.
