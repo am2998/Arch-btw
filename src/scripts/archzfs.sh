@@ -482,8 +482,8 @@ systemctl enable cosmic-greeter.service
 
 print_header "Install additional applications"
 
-pacman -S --needed --noconfirm ghostty spotify-launcher steam flatpak fzf eza zsh
-echo "Additional applications installed: ghostty spotify-launcher steam flatpak fzf eza zsh"
+pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fzf eza zsh
+echo "Additional applications installed"
 
 # --------------------------------------------------------------------------------------------------------------------------
 # INSTALLATION COMPLETED
@@ -802,7 +802,7 @@ systemctl enable cosmic-greeter.service
 22. INSTALL APPLICATIONS (inside chroot)
 --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --needed --noconfirm ghostty spotify-launcher steam flatpak fzf eza zsh
+pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fzf eza zsh
 
 --------------------------------------------------------------------------------------------------------------------------
 23. EXIT CHROOT AND CLEANUP
