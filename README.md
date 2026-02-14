@@ -6,7 +6,7 @@ Experimental Arch Linux ZFS installation ISO/script.
 
 ## Credits
 
-This github workflow builds on the work by r-maerz:
+The GitHub workflow used to generate the ISO image builds upon the work by r-maerz:
 - https://github.com/r-maerz/archlinux-lts-zfs
 
 ## Warning
