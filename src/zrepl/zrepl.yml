@@ -1,0 +1,42 @@
+jobs:
+- type: push
+  name: backup_hourly
+  connect:
+    type: local
+    listener_name: backup_sink
+    client_identity: archzfs
+  filesystems: {
+      "zroot/ROOT/default": true
+  }
+  send:
+    encrypted: true
+  replication:
+    protection:
+      initial: guarantee_resumability
+      incremental: guarantee_incremental
+  snapshotting:
+    type: periodic
+    prefix: zrepl_
+    interval: 1h
+  pruning:
+    keep_sender:
+    - type: grid
+      grid: 24 x1h | 30 x1d | 8 x30d
+      regex: "^zrepl_.*"
+    - type: regex
+      regex: "^(base|pacman-.*)$"
+    keep_receiver:
+    - type: grid
+      grid: 24 x1h | 30 x1d | 12 x30d
+      regex: "^zrepl_.*"
+    - type: regex
+      regex: "^base$"
+    - type: regex
+      regex: "^pacman-.*$"
+
+- type: sink
+  name: backup_sink
+  root_fs: "backup/zrepl/sink"
+  serve:
+    type: local
+    listener_name: backup_sink
