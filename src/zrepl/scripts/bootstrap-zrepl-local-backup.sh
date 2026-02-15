@@ -184,8 +184,6 @@ jobs:
       regex: "^zrepl_.*"
     - type: regex
       regex: "^base$"
-    - type: regex
-      regex: "^pacman-.*$"
 
 - type: sink
   name: backup_sink

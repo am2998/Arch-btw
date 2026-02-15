@@ -89,4 +89,4 @@ with `<client_identity>` set to your short hostname by default.
 - Snapshot + replication are done by `backup_hourly` every 1 hour.
 - Sender pruning keeps: 24 hourly, 30 daily, 8 monthly snapshots.
 - Receiver pruning keeps: 24 hourly, 30 daily, 12 monthly snapshots.
-- Sender additionally keeps `@base` and `@pacman-*`; receiver also keeps `@base` and `@pacman-*`.
+- Sender additionally keeps `@base` and `@pacman-*`; receiver keeps only `@base` (no `@pacman-*` retention).
