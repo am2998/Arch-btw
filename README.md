@@ -44,11 +44,11 @@ chmod +x /root/archzfs.sh
 
 There are three ways to install Arch Linux with ZFS using this repository:
 
-1. **Via Script**: Run the `archzfs.sh` script directly on an existing Arch Linux system. This assumes you have a compatible environment set up.
+1. **Via ISO (Recommended)**: Download the pre-built ISO from the Releases section, which includes the script and a live environment ready for installation.
 
-2. **Via Manual Commands**: Copy the commands from the manual section at the bottom of the `archzfs.sh` script file and execute them manually step by step. This gives you full control over each installation step.
+2. **Via Script**: Run the `archzfs.sh` script directly on an existing Arch Linux system. This assumes you have a compatible environment set up.
 
-3. **Via ISO (Recommended)**: Download the pre-built ISO from the Releases section, which includes the script and a live environment ready for installation.
+3. **Via Manual Commands**: Copy the commands from the manual section at the bottom of the `archzfs.sh` script file and execute them manually step by step. This gives you full control over each installation step.
 
 
 ## Legacy scripts
@@ -93,6 +93,7 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 #### NVIDIA Drivers ####
 - Driver path in script: proprietary NVIDIA Open kernel module variant for LTS kernel.
 - Packages installed: `nvidia-open-lts`, `nvidia-settings`, `nvidia-utils`, `opencl-nvidia`, `libxnvctrl`, `egl-wayland`.
+
 
 ## Hooks and Zrepl
 
