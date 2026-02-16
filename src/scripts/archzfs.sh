@@ -491,7 +491,7 @@ echo "Additional applications installed"
 
 print_header "Install extra packages"
 
-pacman -S --needed --noconfirm pacman-contrib smartmontools
+pacman -S --needed --noconfirm pacman-contrib smartmontools task
 su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
 echo "Extra packages installed"
 
@@ -818,7 +818,7 @@ pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fz
 23. INSTALL EXTRA PACKAGES (inside chroot)
 --------------------------------------------------------------------------------------------------------------------------
 
-pacman -S --needed --noconfirm pacman-contrib smartmontools
+pacman -S --needed --noconfirm pacman-contrib smartmontools task
 su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
 
 --------------------------------------------------------------------------------------------------------------------------
