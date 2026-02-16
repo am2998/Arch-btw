@@ -486,6 +486,16 @@ pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fz
 echo "Additional applications installed"
 
 # --------------------------------------------------------------------------------------------------------------------------
+# EXTRA PACKAGES
+# --------------------------------------------------------------------------------------------------------------------------
+
+print_header "Install extra packages"
+
+pacman -S --needed --noconfirm pacman-contrib smartmontools
+su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
+echo "Extra packages installed"
+
+# --------------------------------------------------------------------------------------------------------------------------
 # INSTALLATION COMPLETED
 # --------------------------------------------------------------------------------------------------------------------------
 
@@ -805,7 +815,14 @@ systemctl enable cosmic-greeter.service
 pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fzf eza zsh
 
 --------------------------------------------------------------------------------------------------------------------------
-23. EXIT CHROOT AND CLEANUP
+23. INSTALL EXTRA PACKAGES (inside chroot)
+--------------------------------------------------------------------------------------------------------------------------
+
+pacman -S --needed --noconfirm pacman-contrib smartmontools
+su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
+
+--------------------------------------------------------------------------------------------------------------------------
+24. EXIT CHROOT AND CLEANUP
 --------------------------------------------------------------------------------------------------------------------------
 
 exit  # Exit chroot
@@ -815,7 +832,7 @@ zfs umount -a
 zpool export zroot
 
 --------------------------------------------------------------------------------------------------------------------------
-24. RIAVVIO
+25. RIAVVIO
 --------------------------------------------------------------------------------------------------------------------------
 
 reboot
