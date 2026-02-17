@@ -120,6 +120,28 @@ cleanup() {
     fi
 }
 
+error_exit() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
+
+remove_efi_entries_by_label() {
+    local label="$1"
+    local -a entries=()
+    local entry
+
+    mapfile -t entries < <(efibootmgr | awk -v label="$label" '$1 ~ /^Boot[0-9A-Fa-f]{4}\*?$/ && $2 == label {print substr($1,5,4)}')
+    [ "${#entries[@]}" -gt 0 ] || return 0
+
+    for entry in "${entries[@]}"; do
+        if efibootmgr --bootnum "$entry" --delete-bootnum >/dev/null 2>&1; then
+            echo "Removed existing EFI boot entry Boot${entry} (${label})."
+        else
+            echo "WARNING: Failed to remove existing EFI boot entry Boot${entry} (${label})."
+        fi
+    done
+}
+
 # --------------------------------------------------------------------------------------------------------------------------
 # START INSTALLATION
 # --------------------------------------------------------------------------------------------------------------------------
@@ -238,10 +260,12 @@ print_header "Chroot into the system and configure"
 
 echo "Entering chroot to configure the system..."
 
-# Make header helper available inside chroot
+# Make helper functions available inside chroot
 {
     declare -f print_header
     declare -f ask_desktop_installation
+    declare -f error_exit
+    declare -f remove_efi_entries_by_label
 } > /mnt/root/.arch-install-helpers.sh
 ROOTPASS_FILE="/mnt/root/.arch-rootpass"
 USERPASS_FILE="/mnt/root/.arch-userpass"
@@ -256,11 +280,6 @@ if ! arch-chroot /mnt \
     /bin/bash --noprofile --norc -euo pipefail <<'EOF'
 
 source /root/.arch-install-helpers.sh
-
-error_exit() {
-    echo "ERROR: $1" >&2
-    exit 1
-}
 
 # Safety: ensure we don't echo each input line (bash verbose mode)
 set +o verbose || true
@@ -331,7 +350,7 @@ fi
 
 print_header "Install ZFSBootMenu"
 
-pacman -S --needed --noconfirm curl signify
+pacman -S --needed --noconfirm signify
 
 mkdir -p /efi/EFI/zbm
 
@@ -367,6 +386,7 @@ rm -rf "$ZBM_WORKDIR"
 echo "Verified and installed ZFSBootMenu EFI: $(basename "$ZBM_EFI_FILE")"
 
 # Create the boot entry
+remove_efi_entries_by_label "ZFSBootMenu"
 efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --loader '\EFI\zbm\zfsbootmenu.EFI' \
     --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
@@ -387,7 +407,9 @@ if [ ! -f /usr/share/secureboot/keys/db/db.key ]; then
 fi
 
 if sbctl status | grep -q '^Setup Mode:[[:space:]]*✓'; then
-    sbctl enroll-keys -m
+    if ! sbctl enroll-keys -m; then
+        echo "Key enrollment failed; continuing without enrolling keys."
+    fi
 else
     echo "Setup Mode is disabled; skipping key enrollment."
 fi
@@ -415,6 +437,11 @@ EOFDRACUT'
 
 # Find kernel version
 KERNEL_VERSION=$(ls /usr/lib/modules/ | grep lts | head -n1)
+
+# Ensure dracut runtime dependency is present
+if ! command -v cpio >/dev/null 2>&1; then
+    pacman -S --needed --noconfirm cpio
+fi
 
 # Generate traditional initramfs
 dracut --force --hostonly --kver "$KERNEL_VERSION" /boot/initramfs-linux-lts.img
@@ -502,9 +529,6 @@ SNAPSHOT_TAG="base"
 zfs snapshot "zroot/ROOT/default@${SNAPSHOT_TAG}"
 echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
 
-ask_desktop_installation
-echo "Desktop installation option: $INSTALL_DESKTOP"
-
 # ----------------------------------------------------------------------------------------------------------------------
 # YAY
 # ----------------------------------------------------------------------------------------------------------------------
@@ -522,6 +546,8 @@ fi
 pacman -U --noconfirm "${yay_pkgs[0]}"
 
 
+ask_desktop_installation
+echo "Desktop installation option: $INSTALL_DESKTOP"
 
 if [ "$INSTALL_DESKTOP" = "yes" ]; then
     # ----------------------------------------------------------------------------------------------------------------------
@@ -756,6 +782,9 @@ mkdir -p /efi/EFI/zbm
 wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI
 
 # Create EFI entry
+for bootnum in $(efibootmgr | awk '$1 ~ /^Boot[0-9A-Fa-f]{4}\*?$/ && $2 == "ZFSBootMenu" {print substr($1,5,4)}'); do
+    efibootmgr --bootnum "$bootnum" --delete-bootnum
+done
 efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
     --loader '\EFI\zbm\zfsbootmenu.EFI' \
     --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
@@ -772,8 +801,11 @@ zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=
 sbctl create-keys
 
 # If in Setup Mode, enroll keys
-sbctl status
-sbctl enroll-keys -m 
+if sbctl status | grep -q '^Setup Mode:[[:space:]]*✓'; then
+    sbctl enroll-keys -m || echo "Key enrollment failed; continuing without enrolling keys."
+else
+    echo "Setup Mode is disabled; skipping key enrollment."
+fi
 
 # Sign EFI binary
 sbctl sign -s /efi/EFI/zbm/zfsbootmenu.EFI
@@ -794,6 +826,9 @@ EOF
 
 # Find kernel version
 KERNEL_VERSION=$(ls /usr/lib/modules/ | grep lts | head -n1)
+
+# Ensure dracut runtime dependency is present
+command -v cpio >/dev/null 2>&1 || pacman -S --needed --noconfirm cpio
 
 # Generate initramfs
 dracut --force --hostonly --kver "$KERNEL_VERSION" /boot/initramfs-linux-lts.img
