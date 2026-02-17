@@ -219,7 +219,7 @@ pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efiboot
 print_header "Generate fstab file"
 
 # Exclude ZFS entries - ZFS handles its own mounting via zfs-mount.service
-genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab  
+genfstab -U /mnt | grep -v zfs > /mnt/etc/fstab  
 
 # Get the actual UUID of the EFI partition
 EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
@@ -660,7 +660,7 @@ pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efiboot
 4. FSTAB GENERATION
 --------------------------------------------------------------------------------------------------------------------------
 
-genfstab -U /mnt | grep -v zfs >> /mnt/etc/fstab
+genfstab -U /mnt | grep -v zfs > /mnt/etc/fstab
 
 # Get EFI partition UUID
 EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
