@@ -14,7 +14,7 @@ The GitHub workflow used to generate the ISO image builds upon the work by r-mae
 The script is created for personal use and published only as reference; I assume no responsibility for any damage or data loss.
 
 
-## Quick Start (using ISO)
+## Quick Start
 
 1. Download latest ISO + checksum from Releases:
 ```bash
