@@ -40,21 +40,9 @@ chmod +x /root/archzfs.sh
 /root/archzfs.sh
 ```
 
-## Installation Methods
-
-There are three ways to install Arch Linux with ZFS using this repository:
-
-1. **Via ISO (Recommended)**: Download the pre-built ISO from the Releases section, which includes the script and a live environment ready for installation.
-
-2. **Via Script**: Run the `archzfs.sh` script directly on an existing Arch Linux system. This assumes you have a compatible environment set up.
-
-3. **Via Manual Commands**: Copy the commands from the manual section at the bottom of the `archzfs.sh` script file and execute them manually step by step. This gives you full control over each installation step.
-
-
 ## Legacy scripts
 
 This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
-
 
 ## Script Implementation Details
 

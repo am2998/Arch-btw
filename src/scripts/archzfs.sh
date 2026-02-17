@@ -120,11 +120,6 @@ cleanup() {
     fi
 }
 
-error_exit() {
-    echo "ERROR: $1" >&2
-    exit 1
-}
-
 remove_efi_entries_by_label() {
     local label="$1"
     local -a entries=()
@@ -140,6 +135,33 @@ remove_efi_entries_by_label() {
             echo "WARNING: Failed to remove existing EFI boot entry Boot${entry} (${label})."
         fi
     done
+}
+
+run_yay_noninteractive() {
+    local user="$1"
+    shift
+    local -a pkgs=("$@")
+    local sudoers_file="/etc/sudoers.d/90-${user}-yay-nopasswd"
+    local -a yay_cmd=(yay -S --needed --noconfirm --sudoflags -n)
+    local pkg
+    local yay_cmd_str
+
+    [ "${#pkgs[@]}" -gt 0 ] || return 0
+
+    for pkg in "${pkgs[@]}"; do
+        yay_cmd+=("$pkg")
+    done
+
+    printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$user" > "$sudoers_file"
+    chmod 0440 "$sudoers_file"
+
+    printf -v yay_cmd_str '%q ' "${yay_cmd[@]}"
+    if ! su - "$user" -c "$yay_cmd_str"; then
+        rm -f "$sudoers_file"
+        return 1
+    fi
+
+    rm -f "$sudoers_file"
 }
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -264,8 +286,8 @@ echo "Entering chroot to configure the system..."
 {
     declare -f print_header
     declare -f ask_desktop_installation
-    declare -f error_exit
     declare -f remove_efi_entries_by_label
+    declare -f run_yay_noninteractive
 } > /mnt/root/.arch-install-helpers.sh
 ROOTPASS_FILE="/mnt/root/.arch-rootpass"
 USERPASS_FILE="/mnt/root/.arch-userpass"
@@ -355,31 +377,31 @@ pacman -S --needed --noconfirm signify
 mkdir -p /efi/EFI/zbm
 
 ZBM_WORKDIR=$(mktemp -d /tmp/zbm-release.XXXXXX)
-ZBM_RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/zbm-dev/zfsbootmenu/releases/latest) || error_exit "Failed to query latest ZFSBootMenu release metadata"
+ZBM_RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/zbm-dev/zfsbootmenu/releases/latest)
 
 ZBM_TAG=$(printf '%s\n' "$ZBM_RELEASE_JSON" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
 ZBM_EFI_URL=$(printf '%s\n' "$ZBM_RELEASE_JSON" | grep -oE '"browser_download_url":[[:space:]]*"[^"]*zfsbootmenu-release-x86_64-[^"]*\.EFI"' | head -n1 | sed -E 's/.*"([^"]*)"/\1/')
 ZBM_SIG_URL=$(printf '%s\n' "$ZBM_RELEASE_JSON" | grep -oE '"browser_download_url":[[:space:]]*"[^"]*/sha256\.sig"' | head -n1 | sed -E 's/.*"([^"]*)"/\1/')
 
-[ -n "$ZBM_TAG" ] || error_exit "Unable to determine ZFSBootMenu release tag"
-[ -n "$ZBM_EFI_URL" ] || error_exit "Unable to find x86_64 release EFI asset in latest ZFSBootMenu release"
-[ -n "$ZBM_SIG_URL" ] || error_exit "Unable to find sha256.sig in latest ZFSBootMenu release"
+[ -n "$ZBM_TAG" ]
+[ -n "$ZBM_EFI_URL" ]
+[ -n "$ZBM_SIG_URL" ]
 
 ZBM_EFI_FILE="$ZBM_WORKDIR/$(basename "$ZBM_EFI_URL")"
 ZBM_SIG_FILE="$ZBM_WORKDIR/sha256.sig"
 ZBM_PUBKEY_FILE="$ZBM_WORKDIR/zfsbootmenu.pub"
 
-curl -fL "$ZBM_EFI_URL" -o "$ZBM_EFI_FILE" || error_exit "Failed to download ZFSBootMenu EFI asset"
-curl -fL "$ZBM_SIG_URL" -o "$ZBM_SIG_FILE" || error_exit "Failed to download ZFSBootMenu sha256 signature file"
+curl -fL "$ZBM_EFI_URL" -o "$ZBM_EFI_FILE"
+curl -fL "$ZBM_SIG_URL" -o "$ZBM_SIG_FILE"
 
 if ! curl -fL "https://raw.githubusercontent.com/zbm-dev/zfsbootmenu/${ZBM_TAG}/releng/keys/zfsbootmenu.pub" -o "$ZBM_PUBKEY_FILE"; then
-    curl -fL "https://raw.githubusercontent.com/zbm-dev/zfsbootmenu/master/releng/keys/zfsbootmenu.pub" -o "$ZBM_PUBKEY_FILE" || error_exit "Failed to download ZFSBootMenu public key"
+    curl -fL "https://raw.githubusercontent.com/zbm-dev/zfsbootmenu/master/releng/keys/zfsbootmenu.pub" -o "$ZBM_PUBKEY_FILE"
 fi
 
 (
     cd "$ZBM_WORKDIR" || exit 1
     signify -C -p "$ZBM_PUBKEY_FILE" -x "$ZBM_SIG_FILE" "$(basename "$ZBM_EFI_FILE")"
-) || error_exit "ZFSBootMenu EFI signature verification failed"
+)
 
 install -m 0644 "$ZBM_EFI_FILE" /efi/EFI/zbm/zfsbootmenu.EFI
 rm -rf "$ZBM_WORKDIR"
@@ -520,14 +542,30 @@ echo "Root password set."
 echo "Configuration completed successfully!"
 
 # --------------------------------------------------------------------------------------------------------------------------
-# SNAPSHOTS
+# ZFS SNAPSHOT
 # --------------------------------------------------------------------------------------------------------------------------
 
-print_header "Create ZFS snapshot before installing desktop environment"
+print_header "Create ZFS snapshot"
 
 SNAPSHOT_TAG="base"
 zfs snapshot "zroot/ROOT/default@${SNAPSHOT_TAG}"
 echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
+
+# ----------------------------------------------------------------------------------------------------------------------
+# AUDIO
+# ----------------------------------------------------------------------------------------------------------------------
+
+print_header "Install audio components"
+
+pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
+
+# ----------------------------------------------------------------------------------------------------------------------
+# NVIDIA DRIVERS
+# ----------------------------------------------------------------------------------------------------------------------
+
+print_header "Install NVIDIA drivers"
+
+pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
 # ----------------------------------------------------------------------------------------------------------------------
 # YAY
@@ -540,31 +578,17 @@ su - "$USERNAME" -c 'rm -rf /tmp/yay && git clone https://aur.archlinux.org/yay.
 
 shopt -s nullglob
 yay_pkgs=(/tmp/yay/yay-*.pkg.tar.*)
-if [ "${#yay_pkgs[@]}" -eq 0 ]; then
-    error_exit "yay package build failed"
-fi
+[ "${#yay_pkgs[@]}" -gt 0 ]
 pacman -U --noconfirm "${yay_pkgs[0]}"
 
+# ----------------------------------------------------------------------------------------------------------------------
+# DESKTOP ENVIRONMENT
+# ----------------------------------------------------------------------------------------------------------------------
 
 ask_desktop_installation
 echo "Desktop installation option: $INSTALL_DESKTOP"
 
 if [ "$INSTALL_DESKTOP" = "yes" ]; then
-    # ----------------------------------------------------------------------------------------------------------------------
-    # AUDIO
-    # ----------------------------------------------------------------------------------------------------------------------
-
-    print_header "Install audio components"
-
-    pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
-
-    # ----------------------------------------------------------------------------------------------------------------------
-    # NVIDIA DRIVERS
-    # ----------------------------------------------------------------------------------------------------------------------
-
-    print_header "Install NVIDIA drivers"
-
-    pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
     # ----------------------------------------------------------------------------------------------------------------------
     # COSMIC
@@ -591,7 +615,7 @@ if [ "$INSTALL_DESKTOP" = "yes" ]; then
     print_header "Install extra packages"
 
     pacman -S --needed --noconfirm pacman-contrib smartmontools task
-    su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
+    run_yay_noninteractive "$USERNAME" downgrade informant
     echo "Extra packages installed"
 
 else
@@ -629,325 +653,3 @@ else
 fi
 
 exit 0
-
-: <<'MANUAL_INSTALLATION_GUIDE'
-##########################################################################################################################
-##########################################################################################################################
-##                                                                                                                      ##
-##                                    MANUAL - COMMANDS FOR MANUAL INSTALLATION                                         ##
-##                                                                                                                      ##
-##########################################################################################################################
-##########################################################################################################################
-
-This section contains all commands to manually install Arch Linux with ZFS and ZFSBootMenu.
-Replace variables inside <...> with your values.
-
---------------------------------------------------------------------------------------------------------------------------
-VARIABLES TO SET
---------------------------------------------------------------------------------------------------------------------------
-
-DISK="/dev/sdX"                    # Target disk (e.g., /dev/sda, /dev/nvme0n1)
-PARTITION_1="1"                    # For SATA: "1", for NVMe: "p1"
-PARTITION_2="2"                    # For SATA: "2", for NVMe: "p2"
-HOSTNAME="archlinux"               # Hostname
-USERNAME="archuser"                # Username
-ZFS_PASS="password"                # ZFS encryption passphrase
-
---------------------------------------------------------------------------------------------------------------------------
-1. DISK PARTITIONING
---------------------------------------------------------------------------------------------------------------------------
-
-wipefs -a -f "$DISK"
-parted "$DISK" --script mklabel gpt
-parted "$DISK" --script mkpart ESP fat32 1MiB 1GiB
-parted "$DISK" --script set 1 esp on
-parted "$DISK" --script mkpart primary 1GiB 100%
-
---------------------------------------------------------------------------------------------------------------------------
-2. ZPOOL AND DATASET CREATION
---------------------------------------------------------------------------------------------------------------------------
-
-# Create a temporary key file
-ZFS_KEYFILE="/tmp/arch-zfs.key"
-umask 077
-printf '%s' "$ZFS_PASS" > "$ZFS_KEYFILE"
-
-# Create encrypted zpool
-zpool create \
-    -o ashift=12 \
-    -O acltype=posixacl -O canmount=off -O compression=lz4 \
-    -O dnodesize=auto -O normalization=formD -o autotrim=on \
-    -O atime=off -O xattr=sa -O mountpoint=none \
-    -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation="file://$ZFS_KEYFILE" \
-    -R /mnt zroot ${DISK}${PARTITION_2} -f
-
-rm -f "$ZFS_KEYFILE"
-
-# Create datasets
-zfs create -o mountpoint=none zroot/ROOT
-zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/default
-
-# Set bootfs
-zpool set bootfs=zroot/ROOT/default zroot
-
-# Mount datasets
-zfs mount zroot/ROOT/default
-zfs mount -a
-
-# Configure cache
-mkdir -p /mnt/etc/zfs
-zpool set cachefile=/etc/zfs/zpool.cache zroot
-cp /etc/zfs/zpool.cache /mnt/etc/zfs/zpool.cache
-
-# Store key for auto-unlock
-umask 077
-printf '%s' "$ZFS_PASS" > /mnt/etc/zfs/zroot.key
-
-# Format and mount EFI partition
-mkfs.fat -F32 "${DISK}${PARTITION_1}"
-mkdir -p /mnt/efi
-mount "${DISK}${PARTITION_1}" /mnt/efi
-
---------------------------------------------------------------------------------------------------------------------------
-3. BASE SYSTEM INSTALLATION
---------------------------------------------------------------------------------------------------------------------------
-
-pacstrap /mnt linux-lts linux-lts-headers base base-devel linux-firmware efibootmgr dracut sbctl zram-generator sudo networkmanager amd-ucode wget reflector nano
-
---------------------------------------------------------------------------------------------------------------------------
-4. FSTAB GENERATION
---------------------------------------------------------------------------------------------------------------------------
-
-genfstab -U /mnt | grep -v zfs > /mnt/etc/fstab
-
-# Get EFI partition UUID
-EFI_UUID=$(blkid -s UUID -o value "${DISK}${PARTITION_1}")
-
-# Make EFI mount optional
-sed -i "/\/efi.*vfat/c\\UUID=${EFI_UUID}  /efi  vfat  noauto,nofail,x-systemd.device-timeout=1  0  0" /mnt/etc/fstab
-
---------------------------------------------------------------------------------------------------------------------------
-5. CHROOT INTO THE SYSTEM
---------------------------------------------------------------------------------------------------------------------------
-
-arch-chroot /mnt
-
---------------------------------------------------------------------------------------------------------------------------
-6. MIRROR CONFIGURATION (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-reflector --country "Italy,Germany,France,Netherlands,Switzerland,Austria" --latest 20 --sort rate --protocol https --age 7 --save /etc/pacman.d/mirrorlist
-
---------------------------------------------------------------------------------------------------------------------------
-7. ENABLE SERVICES (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-systemctl enable NetworkManager
-systemctl mask NetworkManager-wait-online.service
-systemctl mask ldconfig.service
-systemctl mask geoclue
-
---------------------------------------------------------------------------------------------------------------------------
-8. INSTALL ZFS (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-# Add archzfs repository
-echo -e '
-[archzfs]
-SigLevel = TrustAll Optional
-Server = https://github.com/archzfs/archzfs/releases/download/experimental' >> /etc/pacman.conf
-
-# Import GPG keys
-pacman-key -r DDF7DB817396A49B2A2723F7403BD972F75D9D76
-pacman-key --lsign-key DDF7DB817396A49B2A2723F7403BD972F75D9D76
-
-# Install ZFS
-pacman -Syu --noconfirm --needed zfs-dkms
-
-# Enable ZFS services
-systemctl enable zfs.target zfs-import-cache zfs-mount zfs-import.target
-
-# Configure keylocation
-zfs set keylocation=file:///etc/zfs/zroot.key zroot
-
-# Generate hostid
-zgenhostid -f
-
---------------------------------------------------------------------------------------------------------------------------
-9. INSTALL ZFSBOOTMENU (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-mkdir -p /efi/EFI/zbm
-wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI
-
-# Create EFI entry
-for bootnum in $(efibootmgr | awk '$1 ~ /^Boot[0-9A-Fa-f]{4}\*?$/ && $2 == "ZFSBootMenu" {print substr($1,5,4)}'); do
-    efibootmgr --bootnum "$bootnum" --delete-bootnum
-done
-efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
-    --loader '\EFI\zbm\zfsbootmenu.EFI' \
-    --unicode "spl_hostid=$(hostid) zbm.timeout=3 zbm.prefer=zroot zbm.import_policy=hostid" \
-    --verbose
-
-# Set ZFS properties for boot
-zfs set org.zfsbootmenu:commandline="noresume rw init_on_alloc=0 spl.spl_hostid=$(hostid) rd.systemd.gpt_auto=0" zroot/ROOT/default
-
---------------------------------------------------------------------------------------------------------------------------
-10. SECURE BOOT SETUP (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-# Create Secure Boot keys
-sbctl create-keys
-
-# If in Setup Mode, enroll keys
-if sbctl status | grep -q '^Setup Mode:[[:space:]]*✓'; then
-    sbctl enroll-keys -m || echo "Key enrollment failed; continuing without enrolling keys."
-else
-    echo "Setup Mode is disabled; skipping key enrollment."
-fi
-
-# Sign EFI binary
-sbctl sign -s /efi/EFI/zbm/zfsbootmenu.EFI
-
---------------------------------------------------------------------------------------------------------------------------
-11. DRACUT CONFIGURATION (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-cat > /etc/dracut.conf.d/99-zfs.conf <<EOF
-hostonly="yes"
-uefi="no"
-hostonly_cmdline="no"
-add_dracutmodules+=" zfs "
-i18n_vars+=" KEYMAP "
-install_items+=" /etc/zfs/zroot.key "
-compress="zstd"
-EOF
-
-# Find kernel version
-KERNEL_VERSION=$(ls /usr/lib/modules/ | grep lts | head -n1)
-
-# Ensure dracut runtime dependency is present
-command -v cpio >/dev/null 2>&1 || pacman -S --needed --noconfirm cpio
-
-# Generate initramfs
-dracut --force --hostonly --kver "$KERNEL_VERSION" /boot/initramfs-linux-lts.img
-
---------------------------------------------------------------------------------------------------------------------------
-12. ZRAM CONFIGURATION (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-cat > /etc/systemd/zram-generator.conf <<EOF
-[zram0]
-zram-size = min(ram, 32768)
-compression-algorithm = zstd
-EOF
-
-echo "vm.swappiness = 180" >> /etc/sysctl.d/99-vm-zram-parameters.conf
-echo "vm.watermark_boost_factor = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
-echo "vm.watermark_scale_factor = 125" >> /etc/sysctl.d/99-vm-zram-parameters.conf
-echo "vm.page-cluster = 0" >> /etc/sysctl.d/99-vm-zram-parameters.conf
-
-sysctl --system
-
---------------------------------------------------------------------------------------------------------------------------
-13. ENABLE MULTILIB (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
-pacman -Syy
-
---------------------------------------------------------------------------------------------------------------------------
-14. SYSTEM CONFIGURATION (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-echo "$HOSTNAME" > /etc/hostname
-ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
-hwclock --systohc
-timedatectl set-ntp true
-sed -i '/^#en_US.UTF-8/s/^#//g' /etc/locale.gen && locale-gen
-echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME" > /etc/hosts
-echo "KEYMAP=us" > /etc/vconsole.conf
-echo "LANG=en_US.UTF-8" > /etc/locale.conf
-
---------------------------------------------------------------------------------------------------------------------------
-15. CREATE USER (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-useradd -m -G wheel -s /bin/bash "$USERNAME"
-passwd "$USERNAME"
-
-cat > /etc/sudoers.d/10-wheel <<EOF
-%wheel ALL=(ALL:ALL) ALL
-EOF
-chmod 0440 /etc/sudoers.d/10-wheel
-
---------------------------------------------------------------------------------------------------------------------------
-16. ROOT PASSWORD (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-passwd root
-
---------------------------------------------------------------------------------------------------------------------------
-17. AUDIO (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
-
---------------------------------------------------------------------------------------------------------------------------
-18. NVIDIA DRIVERS (inside chroot) - Optional
---------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
-
---------------------------------------------------------------------------------------------------------------------------
-19. INSTALL YAY (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --needed --noconfirm git go
-su - "$USERNAME" -c 'rm -rf /tmp/yay && git clone https://aur.archlinux.org/yay.git /tmp/yay && cd /tmp/yay && makepkg -s --noconfirm --needed'
-pacman -U --noconfirm /tmp/yay/yay-*.pkg.tar.*
-
---------------------------------------------------------------------------------------------------------------------------
-20. PRE-DESKTOP SNAPSHOT (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-zfs snapshot "zroot/ROOT/default@base"
-
---------------------------------------------------------------------------------------------------------------------------
-21. INSTALL COSMIC DESKTOP (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --needed --noconfirm cosmic-session
-systemctl enable cosmic-greeter.service
-
---------------------------------------------------------------------------------------------------------------------------
-22. INSTALL APPLICATIONS (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fzf eza zsh
-
---------------------------------------------------------------------------------------------------------------------------
-23. INSTALL EXTRA PACKAGES (inside chroot)
---------------------------------------------------------------------------------------------------------------------------
-
-pacman -S --needed --noconfirm pacman-contrib smartmontools task
-su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
-
---------------------------------------------------------------------------------------------------------------------------
-24. EXIT CHROOT AND CLEANUP
---------------------------------------------------------------------------------------------------------------------------
-
-exit  # Exit chroot
-
-umount -R /mnt
-zfs mount -H | awk '$1 ~ /^zroot($|\/)/ {print $1}' | tac | xargs -r -n1 zfs umount
-zpool export zroot
-
---------------------------------------------------------------------------------------------------------------------------
-25. RIAVVIO
---------------------------------------------------------------------------------------------------------------------------
-
-reboot
-
-MANUAL_INSTALLATION_GUIDE
