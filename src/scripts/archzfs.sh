@@ -45,7 +45,10 @@ ask_desktop_installation() {
     local choice
 
     while true; do
-        read -r -p "Install COSMIC desktop environment and desktop packages? [Y/n]: " choice
+        if ! read -r -p "Install COSMIC desktop environment and desktop packages? [Y/n]: " choice </dev/tty; then
+            echo "WARNING: Unable to read from terminal. Defaulting to desktop installation (yes)."
+            choice="y"
+        fi
         case "$choice" in
             ""|y|Y|yes|YES)
                 INSTALL_DESKTOP="yes"
@@ -95,13 +98,21 @@ select_install_disk() {
 
 cleanup() {
     local exit_code=${1:-$?}
+    local -a zroot_mounted=()
+    local i
 
     [ "${CLEANUP_DONE:-0}" -eq 1 ] && return
     CLEANUP_DONE=1
 
     rm -f /mnt/root/.arch-install-helpers.sh /mnt/root/.arch-rootpass /mnt/root/.arch-userpass
     umount -R /mnt 2>/dev/null || true
-    zfs umount -a 2>/dev/null || true
+
+    # Unmount only datasets from the install pool to avoid affecting other host pools.
+    mapfile -t zroot_mounted < <(zfs mount -H 2>/dev/null | awk '$1 ~ /^zroot($|\/)/ {print $1}')
+    for ((i=${#zroot_mounted[@]} - 1; i>=0; i--)); do
+        zfs umount "${zroot_mounted[$i]}" 2>/dev/null || true
+    done
+
     zpool export zroot 2>/dev/null || true
 
     if [ "$exit_code" -ne 0 ]; then
@@ -863,7 +874,7 @@ su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
 exit  # Exit chroot
 
 umount -R /mnt
-zfs umount -a
+zfs mount -H | awk '$1 ~ /^zroot($|\/)/ {print $1}' | tac | xargs -r -n1 zfs umount
 zpool export zroot
 
 --------------------------------------------------------------------------------------------------------------------------
