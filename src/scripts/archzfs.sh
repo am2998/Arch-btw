@@ -41,6 +41,27 @@ get_password() {
     done
 }
 
+ask_desktop_installation() {
+    local choice
+
+    while true; do
+        read -r -p "Install COSMIC desktop environment and desktop packages? [Y/n]: " choice
+        case "$choice" in
+            ""|y|Y|yes|YES)
+                INSTALL_DESKTOP="yes"
+                break
+                ;;
+            n|N|no|NO)
+                INSTALL_DESKTOP="no"
+                break
+                ;;
+            *)
+                echo "Invalid choice. Please answer Y or N."
+                ;;
+        esac
+    done
+}
+
 select_install_disk() {
     local -a disks
     local index
@@ -207,7 +228,10 @@ print_header "Chroot into the system and configure"
 echo "Entering chroot to configure the system..."
 
 # Make header helper available inside chroot
-declare -f print_header > /mnt/root/.arch-install-helpers.sh
+{
+    declare -f print_header
+    declare -f ask_desktop_installation
+} > /mnt/root/.arch-install-helpers.sh
 ROOTPASS_FILE="/mnt/root/.arch-rootpass"
 USERPASS_FILE="/mnt/root/.arch-userpass"
 umask 077
@@ -426,24 +450,21 @@ echo "Root password set."
 echo "Configuration completed successfully!"
 
 # --------------------------------------------------------------------------------------------------------------------------
-# AUDIO
+# SNAPSHOTS
 # --------------------------------------------------------------------------------------------------------------------------
 
-print_header "Install audio components"
+print_header "Create ZFS snapshot before installing desktop environment"
 
-pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
+SNAPSHOT_TAG="base"
+zfs snapshot "zroot/ROOT/default@${SNAPSHOT_TAG}"
+echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
 
-# --------------------------------------------------------------------------------------------------------------------------
-# NVIDIA DRIVERS
-# --------------------------------------------------------------------------------------------------------------------------
+ask_desktop_installation
+echo "Desktop installation option: $INSTALL_DESKTOP"
 
-print_header "Install NVIDIA drivers"
-
-pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
-
-# --------------------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 # YAY
-# --------------------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 
 print_header "Install yay"
 
@@ -457,43 +478,57 @@ if [ "${#yay_pkgs[@]}" -eq 0 ]; then
 fi
 pacman -U --noconfirm "${yay_pkgs[0]}"
 
-# --------------------------------------------------------------------------------------------------------------------------
-# SNAPSHOTS
-# --------------------------------------------------------------------------------------------------------------------------
 
-print_header "Create ZFS snapshot before installing desktop environment"
 
-SNAPSHOT_TAG="base"
-zfs snapshot "zroot/ROOT/default@${SNAPSHOT_TAG}"
-echo "Created snapshot: zroot/ROOT/default@${SNAPSHOT_TAG}"
+if [ "$INSTALL_DESKTOP" = "yes" ]; then
+    # ----------------------------------------------------------------------------------------------------------------------
+    # AUDIO
+    # ----------------------------------------------------------------------------------------------------------------------
 
-# --------------------------------------------------------------------------------------------------------------------------
-# COSMIC
-# --------------------------------------------------------------------------------------------------------------------------
+    print_header "Install audio components"
 
-print_header "Install COSMIC desktop"
+    pacman -S --needed --noconfirm wireplumber pipewire-pulse pipewire-alsa pavucontrol-qt alsa-utils
 
-pacman -S --needed --noconfirm cosmic-session
-systemctl enable cosmic-greeter.service
+    # ----------------------------------------------------------------------------------------------------------------------
+    # NVIDIA DRIVERS
+    # ----------------------------------------------------------------------------------------------------------------------
 
-# --------------------------------------------------------------------------------------------------------------------------
-# APPLICATIONS
-# --------------------------------------------------------------------------------------------------------------------------
+    print_header "Install NVIDIA drivers"
 
-print_header "Install additional applications"
+    pacman -S --needed --noconfirm nvidia-open-lts nvidia-settings nvidia-utils opencl-nvidia libxnvctrl egl-wayland
 
-pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fzf eza zsh
-echo "Additional applications installed"
+    # ----------------------------------------------------------------------------------------------------------------------
+    # COSMIC
+    # ----------------------------------------------------------------------------------------------------------------------
 
-# --------------------------------------------------------------------------------------------------------------------------
-# EXTRA PACKAGES
-# --------------------------------------------------------------------------------------------------------------------------
+    print_header "Install COSMIC desktop"
 
-print_header "Install extra packages"
+    pacman -S --needed --noconfirm cosmic-session
+    systemctl enable cosmic-greeter.service
 
-pacman -S --needed --noconfirm pacman-contrib smartmontools task
-su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
-echo "Extra packages installed"
+    # ----------------------------------------------------------------------------------------------------------------------
+    # APPLICATIONS
+    # ----------------------------------------------------------------------------------------------------------------------
+
+    print_header "Install additional applications"
+
+    pacman -S --needed --noconfirm ghostty spotify-launcher steam firefox flatpak fzf eza zsh
+    echo "Additional applications installed"
+
+    # ----------------------------------------------------------------------------------------------------------------------
+    # EXTRA PACKAGES
+    # ----------------------------------------------------------------------------------------------------------------------
+
+    print_header "Install extra packages"
+
+    pacman -S --needed --noconfirm pacman-contrib smartmontools task
+    su - "$USERNAME" -c 'yay -S --needed --noconfirm downgrade informant'
+    echo "Extra packages installed"
+
+else
+    print_header "Desktop installation skipped"
+    echo "Base system selected: stopping after base ZFS snapshot."
+fi
 
 # --------------------------------------------------------------------------------------------------------------------------
 # INSTALLATION COMPLETED
@@ -530,7 +565,7 @@ exit 0
 ##########################################################################################################################
 ##########################################################################################################################
 ##                                                                                                                      ##
-##                                    MANUAL - COMMANDS FOR MANUAL INSTALLATION                                        ##
+##                                    MANUAL - COMMANDS FOR MANUAL INSTALLATION                                         ##
 ##                                                                                                                      ##
 ##########################################################################################################################
 ##########################################################################################################################

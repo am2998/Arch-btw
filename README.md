@@ -84,13 +84,20 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Initramfs: host-only for `linux-lts`, compressed with `zstd`.
 
 #### Desktop Environment ####
-- Default: COSMIC plus selected applications. A ZFS snapshot named `zroot/ROOT/default@base` is created first, so you can roll back and choose a different DE or app set if desired.
+- A ZFS snapshot named `zroot/ROOT/default@base` is always created before desktop-related steps.
+- After the snapshot, the installer asks whether to install the COSMIC desktop stack (`[Y/n]` prompt).
+- Default answer is `Y` (install COSMIC + desktop packages). If you choose `n`, installation stops with a base system.
+
+#### AUR Helper ####
+- `yay` is installed in both modes (desktop and base system).
 
 #### Audio ####
+- Installed only when desktop installation is selected.
 - Audio stack: PipeWire with WirePlumber session manager.
 - Packages installed: `wireplumber`, `pipewire-pulse`, `pipewire-alsa`, `pavucontrol-qt`, `alsa-utils`.
 
 #### NVIDIA Drivers ####
+- Installed only when desktop installation is selected.
 - Driver path in script: proprietary NVIDIA Open kernel module variant for LTS kernel.
 - Packages installed: `nvidia-open-lts`, `nvidia-settings`, `nvidia-utils`, `opencl-nvidia`, `libxnvctrl`, `egl-wayland`.
 
@@ -118,7 +125,7 @@ sudo install -Dm644 src/pacman-hooks/60-zfs-dracut-post.hook /etc/pacman.d/hooks
 - source: auto-detected dataset mounted on `/` (or `--source-dataset` override)
 - destination: `backup/zrepl/sink`
 - schedule: hourly snapshot + replication
-- pruning: retention grid for `zrepl_*`, while keeping `base` and `pacman-*`
+- pruning: retention grid for `zrepl_*` and `pacman-*`, while keeping `base` 
 
 Quick start:
 
