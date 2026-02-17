@@ -331,8 +331,40 @@ fi
 
 print_header "Install ZFSBootMenu"
 
+pacman -S --needed --noconfirm curl signify
+
 mkdir -p /efi/EFI/zbm
-wget https://get.zfsbootmenu.org/latest.EFI -O /efi/EFI/zbm/zfsbootmenu.EFI  
+
+ZBM_WORKDIR=$(mktemp -d /tmp/zbm-release.XXXXXX)
+ZBM_RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/zbm-dev/zfsbootmenu/releases/latest) || error_exit "Failed to query latest ZFSBootMenu release metadata"
+
+ZBM_TAG=$(printf '%s\n' "$ZBM_RELEASE_JSON" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+ZBM_EFI_URL=$(printf '%s\n' "$ZBM_RELEASE_JSON" | grep -oE '"browser_download_url":[[:space:]]*"[^"]*zfsbootmenu-release-x86_64-[^"]*\.EFI"' | head -n1 | sed -E 's/.*"([^"]*)"/\1/')
+ZBM_SIG_URL=$(printf '%s\n' "$ZBM_RELEASE_JSON" | grep -oE '"browser_download_url":[[:space:]]*"[^"]*/sha256\.sig"' | head -n1 | sed -E 's/.*"([^"]*)"/\1/')
+
+[ -n "$ZBM_TAG" ] || error_exit "Unable to determine ZFSBootMenu release tag"
+[ -n "$ZBM_EFI_URL" ] || error_exit "Unable to find x86_64 release EFI asset in latest ZFSBootMenu release"
+[ -n "$ZBM_SIG_URL" ] || error_exit "Unable to find sha256.sig in latest ZFSBootMenu release"
+
+ZBM_EFI_FILE="$ZBM_WORKDIR/$(basename "$ZBM_EFI_URL")"
+ZBM_SIG_FILE="$ZBM_WORKDIR/sha256.sig"
+ZBM_PUBKEY_FILE="$ZBM_WORKDIR/zfsbootmenu.pub"
+
+curl -fL "$ZBM_EFI_URL" -o "$ZBM_EFI_FILE" || error_exit "Failed to download ZFSBootMenu EFI asset"
+curl -fL "$ZBM_SIG_URL" -o "$ZBM_SIG_FILE" || error_exit "Failed to download ZFSBootMenu sha256 signature file"
+
+if ! curl -fL "https://raw.githubusercontent.com/zbm-dev/zfsbootmenu/${ZBM_TAG}/releng/keys/zfsbootmenu.pub" -o "$ZBM_PUBKEY_FILE"; then
+    curl -fL "https://raw.githubusercontent.com/zbm-dev/zfsbootmenu/master/releng/keys/zfsbootmenu.pub" -o "$ZBM_PUBKEY_FILE" || error_exit "Failed to download ZFSBootMenu public key"
+fi
+
+(
+    cd "$ZBM_WORKDIR" || exit 1
+    signify -C -p "$ZBM_PUBKEY_FILE" -x "$ZBM_SIG_FILE" "$(basename "$ZBM_EFI_FILE")"
+) || error_exit "ZFSBootMenu EFI signature verification failed"
+
+install -m 0644 "$ZBM_EFI_FILE" /efi/EFI/zbm/zfsbootmenu.EFI
+rm -rf "$ZBM_WORKDIR"
+echo "Verified and installed ZFSBootMenu EFI: $(basename "$ZBM_EFI_FILE")"
 
 # Create the boot entry
 efibootmgr --disk "$DISK" --part 1 --create --label "ZFSBootMenu" \
