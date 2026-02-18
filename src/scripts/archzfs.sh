@@ -614,7 +614,7 @@ if [ "$INSTALL_DESKTOP" = "yes" ]; then
 
     print_header "Install extra packages"
 
-    pacman -S --needed --noconfirm pacman-contrib smartmontools task
+    pacman -S --needed --noconfirm pacman-contrib smartmontools task ranger
     run_yay_noninteractive "$USERNAME" downgrade informant
     echo "Extra packages installed"
 
