@@ -4,14 +4,30 @@
 
 Experimental Arch Linux ZFS installation ISO/script.
 
+> [!WARNING]  
+> The script is created for personal use and published only as reference; I assume no responsibility for any damage or data loss.
+
 ## Credits
 
 The GitHub workflow used to generate the ISO image builds upon the work by r-maerz:
 - https://github.com/r-maerz/archlinux-lts-zfs
 
-## Warning
+## Project Layout
 
-The script is created for personal use and published only as reference; I assume no responsibility for any damage or data loss.
+- `src/scripts`: installer and helper scripts
+- `src/pacman-hooks`: pacman hook scripts and `.hook` units
+- `src/zrepl`: zrepl configuration and bootstrap tooling
+- `assets`: README/media assets
+
+> [!NOTE]
+> Legacy scripts in `src/scripts/backup` are kept as historical reference and are no longer maintained. The official Arch Linux ISO `archinstall` tool now covers most of their original use cases.
+
+## Requirements
+
+- x86_64 system with UEFI firmware
+- target disk you can fully erase for installation
+- internet access during install
+- Arch Linux familiarity for manual recovery/debugging
 
 ## Quick Start ⚡
 
@@ -38,10 +54,6 @@ sync
 chmod +x /root/archzfs.sh
 /root/archzfs.sh
 ```
-
-## Legacy scripts
-
-This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
 
 ## Script Implementation Details 🧩
 
@@ -130,3 +142,35 @@ If the backup pool does not exist yet and must be created on `/dev/sdc`:
 ```bash
 ./scripts/bootstrap-zrepl-local-backup.sh --source-pool zroot --source-dataset zroot/ROOT/default --backup-pool backup --create-backup-pool --apply
 ```
+
+## Contributing 🤝
+
+Contributions are welcome for bug fixes, documentation improvements, and installer reliability updates.
+
+1. Fork the repository and create a focused branch for your change.
+2. Keep changes scoped and include clear commit messages.
+3. Update documentation if behavior, flags, paths, or defaults change.
+4. Open a pull request with:
+   - what changed
+   - why it changed
+   - how you tested it
+
+Before opening a PR, run basic checks where applicable:
+
+```bash
+bash -n src/scripts/archzfs.sh
+bash -n src/pacman-hooks/zfs-pacman-snapshot.sh
+bash -n src/pacman-hooks/zfs-dracut-kernel-refresh.sh
+```
+
+## Support
+
+If you find a bug or regression, open a GitHub issue with:
+
+- the script/command you ran
+- your hardware/storage layout summary
+- relevant logs or terminal output
+
+## License
+
+This project is licensed under the terms in `LICENSE`.
