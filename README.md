@@ -64,7 +64,7 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Pool: `zroot` on the second partition with `ashift=12`, `compression=lz4`, `atime=off`, `xattr=sa`, `autotrim=on`, `canmount=off`, `mountpoint=none`.
 - Datasets created: `zroot/ROOT` (mountpoint `none`) and `zroot/ROOT/default` (mountpoint `/`, `canmount=noauto`).
 - Optional datasets (commented in script): `zroot/data` and `zroot/data/home` (mountpoint `/home`).
-- Encryption: `aes-256-gcm` with a passphrase. A temporary key file in `/tmp` is used during pool creation, then a persistent key file is written to `/etc/zfs/zroot.key`. The pool - - - keylocation is set to `file:///etc/zfs/zroot.key` so ZFS can unlock after ZFSBootMenu has prompted for the passphrase.
+- Encryption: `aes-256-gcm` with a passphrase. A temporary key file in `/tmp` is used during pool creation, then a persistent key file is written to `/etc/zfs/zroot.key`. The pool keylocation is set to `file:///etc/zfs/zroot.key` so ZFS can unlock after ZFSBootMenu has prompted for the passphrase.
 
 #### ZRAM ####
 - Service: `zram-generator` creates `zram0`.
@@ -88,7 +88,7 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Default answer is `Y` (install COSMIC + desktop packages). If you choose `n`, installation stops with a base system.
 
 #### AUR Helper ####
-- `yay` is installed in both modes (desktop and base system).
+- `yay` is installed.
 
 #### Audio ####
 - Installed only when desktop installation is selected.
