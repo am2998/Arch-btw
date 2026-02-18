@@ -13,8 +13,7 @@ The GitHub workflow used to generate the ISO image builds upon the work by r-mae
 
 The script is created for personal use and published only as reference; I assume no responsibility for any damage or data loss.
 
-
-## Quick Start
+## Quick Start ⚡
 
 1. Download latest ISO + checksum from Releases:
 ```bash
@@ -44,7 +43,7 @@ chmod +x /root/archzfs.sh
 
 This repository also includes a backup directory containing legacy scripts unrelated to the ZFS installation. These scripts are no longer maintained, since the archinstall tool included in the official Arch Linux ISO now covers most of their functionality.
 
-## Script Implementation Details
+## Script Implementation Details 🧩
 
 The following details reflect how `src/scripts/archzfs.sh` configures the system.
 
@@ -90,7 +89,7 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Packages installed: `nvidia-open-lts`, `nvidia-settings`, `nvidia-utils`, `opencl-nvidia`, `libxnvctrl`, `egl-wayland`.
 
 
-## Hooks and Zrepl
+## Hooks and Zrepl 
 
 ### Pacman Hooks (`src/pacman-hooks`)
 
