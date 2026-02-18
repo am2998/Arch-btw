@@ -89,7 +89,7 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Packages installed: `nvidia-open-lts`, `nvidia-settings`, `nvidia-utils`, `opencl-nvidia`, `libxnvctrl`, `egl-wayland`.
 
 
-## Hooks and Zrepl 
+## Hooks and Zrepl ♻️
 
 ### Pacman Hooks (`src/pacman-hooks`)
 
