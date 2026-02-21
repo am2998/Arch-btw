@@ -45,7 +45,7 @@ ask_desktop_installation() {
     local choice
 
     while true; do
-        if ! read -r -p "Install COSMIC desktop environment and desktop packages? [Y/n]: " choice </dev/tty; then
+        if ! read -r -p "Install Niri desktop environment and desktop packages? [Y/n]: " choice </dev/tty; then
             echo "WARNING: Unable to read from terminal. Defaulting to desktop installation (yes)."
             choice="y"
         fi
@@ -591,13 +591,14 @@ echo "Desktop installation option: $INSTALL_DESKTOP"
 if [ "$INSTALL_DESKTOP" = "yes" ]; then
 
     # ----------------------------------------------------------------------------------------------------------------------
-    # COSMIC
+    # NIRI
     # ----------------------------------------------------------------------------------------------------------------------
 
-    print_header "Install COSMIC desktop"
+    print_header "Install Niri desktop"
 
-    pacman -S --needed --noconfirm cosmic-session
-    systemctl enable cosmic-greeter.service
+    pacman -Syu --needed --noconfirm niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk
+    run_yay_noninteractive "$USERNAME" dms-shell-bin matugen cava qt6-multimedia-ffmpeg
+    su - "$USERNAME" -c 'systemctl --user add-wants niri.service dms'
 
     # ----------------------------------------------------------------------------------------------------------------------
     # APPLICATIONS
