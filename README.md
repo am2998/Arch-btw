@@ -1,4 +1,4 @@
-# Arch-btw
+# ArchZFS
 
 ![Arch Linux Logo](assets/Archlinux-logo-standard-version.png)
 
