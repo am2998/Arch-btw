@@ -402,6 +402,17 @@ echo "ZFS pool created successfully (compatibility: $ZFS_COMPAT)."
 # Dataset layout
 zfs create -o mountpoint=none "${ZFS_POOL}/ROOT"
 zfs create -o mountpoint=/ -o canmount=noauto "$ZFS_BOOTFS"
+# /home stays in its own dataset: snapshots and rollbacks of the root
+# filesystem (zroot/ROOT/default) then never touch user data. With the altroot
+# (-R /mnt) and mountpoint=/home, zfs mounts it at /mnt/home for the install.
+zfs create -o mountpoint=/home "${ZFS_POOL}/home"
+if [ "$(findmnt -no SOURCE /mnt/home 2>/dev/null)" != "$ZFS_POOL/home" ]; then
+    zfs mount "$ZFS_POOL/home"
+fi
+if [ "$(findmnt -no SOURCE /mnt/home 2>/dev/null)" != "$ZFS_POOL/home" ]; then
+    die "zroot/home did not mount at /mnt/home; refusing to continue installation."
+fi
+echo "Dataset $ZFS_POOL/home created and mounted at /mnt/home."
 
 zpool set bootfs="$ZFS_BOOTFS" "$ZFS_POOL"
 echo "bootfs property set successfully."

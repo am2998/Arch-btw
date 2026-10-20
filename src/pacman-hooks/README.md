@@ -53,7 +53,7 @@ The file is sourced by the helper (keep it owned by `root` and mode `0644`).
 ## Temporary disable
 
 - If the file `/etc/zfs-pacman-snapshot.disable` exists, the snapshot script does nothing.
-- If the file `/etc/zfs-dracut-kernel-refresh.disable` exists, dracut regeneration is skipped.
+- The dracut/UKI refresh is **not** disableable: it runs on every matching transaction so the boot chain never desyncs from the installed packages (an unsigned or stale UKI breaks Secure Boot and kernel/ZFS module pairing). `/etc/zfs-dracut-kernel-refresh.disable` is no longer honoured.
 
 ## Snapshot name
 

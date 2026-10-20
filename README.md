@@ -66,7 +66,8 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Disk layout: GPT with a 1 GiB EFI System Partition (ESP) and the rest for ZFS.
 - Pool: `zroot` on the second partition with `ashift=12`, `compression=lz4`, `atime=off`, `xattr=sa`, `autotrim=on`, `canmount=off`, `mountpoint=none`.
 - Pool compatibility: `openzfs-2.3`. The pool is created with an explicit OpenZFS feature set so that the bundled ZFSBootMenu image can always import it (see below).
-- Datasets: `zroot/ROOT` (mountpoint `none`) and `zroot/ROOT/default` (mountpoint `/`, `canmount=noauto`).
+- Datasets: `zroot/ROOT` (mountpoint `none`), `zroot/ROOT/default` (mountpoint `/`, `canmount=noauto`) and `zroot/home` (mountpoint `/home`).
+- Dataset separation: `/home` lives in its own dataset so snapshots and rollbacks of the root filesystem (`zroot/ROOT/default`) never touch user data. It is mounted by `zfs-mount.service` at boot (`zfs-mount` is enabled) and is mounted under the altroot at `/mnt/home` during installation.
 - Encryption: `aes-256-gcm` with a passphrase. A temporary key file in `/tmp` is used only for the non-interactive `zpool create` call and is removed immediately. The persistent `keylocation` is set to `prompt`.
   - The UKI is stored on the unencrypted ESP, so it must not contain the ZFS passphrase. The installer never writes a persistent key file, and it refuses to install an initramfs or UKI that contains `/etc/zfs/zroot.key`.
   - The normal UKI boot asks for the ZFS passphrase once, in the initramfs.
@@ -108,7 +109,7 @@ The following details reflect how `src/scripts/archzfs.sh` configures the system
 - Modules: adds the `zfs` module; the initramfs and the UKI do **not** contain a ZFS key file.
 - Traditional initramfs: host-only for `linux-lts`, compressed with `zstd`; the script verifies that it exists and contains `zfs.ko`.
 - UKI: built by dracut with `--uefi` and the command line from `/etc/kernel/cmdline`, then verified to contain `.linux`, `.initrd` and `.cmdline` sections and the expected command line.
-- The update hook rebuilds the initramfs and UKI and re-signs the UKI with `sbctl`.
+- The update hook rebuilds the initramfs and UKI and re-signs the UKI with `sbctl`. It runs unconditionally on every matching transaction (kernel, ZFS, dracut or systemd upgrade): there is no opt-out sentinel, because the boot chain must stay in sync with the installed packages.
 
 #### Desktop Environment ####
 - A ZFS snapshot named `zroot/ROOT/default@base` is always created before desktop-related steps.

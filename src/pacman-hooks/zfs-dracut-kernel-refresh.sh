@@ -2,11 +2,12 @@
 
 # Pacman hook helper: rebuild the ZFS initramfs and the systemd-boot Unified
 # Kernel Image (UKI) after kernel/ZFS/dracut updates, then re-sign the boot
-# chain with sbctl. Best effort by design: it must not block pacman.
+# chain with sbctl. Runs unconditionally on every matching transaction: the
+# boot chain must stay in sync with the installed packages, so there is no
+# user opt-out. Best effort by design: it must not block pacman.
 
 set -euo pipefail
 
-DISABLE_SENTINEL="/etc/zfs-dracut-kernel-refresh.disable"
 ESP_PATH="${ESP_PATH:-/efi}"
 UKI_PATH="${UKI_PATH:-$ESP_PATH/EFI/Linux/arch-linux-lts.efi}"
 KERNEL_FLAVOR="${KERNEL_FLAVOR:-linux-lts}"
@@ -182,11 +183,6 @@ sign_file() {
 }
 
 main() {
-    if [ -e "$DISABLE_SENTINEL" ]; then
-        log "disabled via $DISABLE_SENTINEL"
-        exit 0
-    fi
-
     local targets
     targets="$(read_targets || true)"
 
