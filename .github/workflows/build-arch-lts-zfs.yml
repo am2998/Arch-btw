@@ -71,22 +71,34 @@ jobs:
           install -Dm644 "src/pacman-hooks/60-zfs-dracut-post.hook" \
             "$build/airootfs/usr/local/share/archzfs/60-zfs-dracut-post.hook"
 
-          cd "$build/airootfs/etc/mkinitcpio.d"
-          mv linux.preset "$kernel.preset"
-          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" "$kernel.preset"
-          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" "$kernel.preset"
-
-          cd "$build/syslinux"
-          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" archiso_sys-linux.cfg
-          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" archiso_sys-linux.cfg
-          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" archiso_pxe-linux.cfg
-          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" archiso_pxe-linux.cfg
-
-          cd "$build/efiboot/loader/entries"
-          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" 01-archiso-linux.conf
-          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" 01-archiso-linux.conf
-          sed -i "s/vmlinuz-linux/vmlinuz-$kernel/" 02-archiso-speech-linux.conf
-          sed -i "s/initramfs-linux.img/initramfs-$kernel.img/" 02-archiso-speech-linux.conf
+          # Kernel naming: since mkinitcpio v39, initramfs presets are generated
+          # automatically by the mkinitcpio libalpm hook, and the current releng
+          # profile no longer ships airootfs/etc/mkinitcpio.d/linux.preset. With
+          # the package swapped to linux-lts, the hook derives everything from
+          # PKGBASE, so the boot files are /boot/vmlinuz-linux-lts and
+          # /boot/initramfs-linux-lts.img. Instead of descending into profile
+          # paths that change between archiso releases (this once hard-broke the
+          # build), patch every boot loader config found in the profile.
+          boot_cfg_dirs=()
+          for boot_cfg_dir in "$build/grub" "$build/syslinux" "$build/efiboot/loader/entries"; do
+            [[ -d "$boot_cfg_dir" ]] && boot_cfg_dirs+=("$boot_cfg_dir")
+          done
+          if (( ${#boot_cfg_dirs[@]} == 0 )); then
+            printf 'error: no boot loader config directories found in the releng profile\n' >&2
+            exit 1
+          fi
+          find "${boot_cfg_dirs[@]}" -type f \( -name '*.conf' -o -name '*.cfg' \) \
+            -exec sed -i \
+              -e "s/vmlinuz-linux\b/vmlinuz-$kernel/g" \
+              -e "s/initramfs-linux\.img/initramfs-$kernel\.img/g" {} +
+          if grep -rqE 'vmlinuz-linux([^a-zA-Z0-9-]|$)|initramfs-linux\.img' "${boot_cfg_dirs[@]}"; then
+            printf 'error: unpatched stock kernel reference remains in boot configs\n' >&2
+            exit 1
+          fi
+          if ! grep -rq -- "vmlinuz-$kernel" "${boot_cfg_dirs[@]}"; then
+            printf 'error: boot configs do not reference vmlinuz-%s\n' "$kernel" >&2
+            exit 1
+          fi
 
           cp "$build/pacman.conf" "$build/airootfs/etc/pacman.conf"
           mkdir -p "$build/airootfs/usr/share/pacman/keyrings"
@@ -102,8 +114,11 @@ jobs:
           printf '\033[1m Welcome to Arch Linux LTS with OpenZFS \033[0m\n\nInstaller script included at: /root/archzfs.sh\n' > "$build/airootfs/etc/motd"
 
           profile="$build/profiledef.sh"
+          # The upstream iso_label line uses SOURCE_DATE_EPOCH, so match the
+          # whole line instead of a verbatim snapshot of the old text.
+          label_date=$(date +%Y-%m-%d)
           sed -i "s/iso_name=\"archlinux\"/iso_name=\"archlinux-lts-zfs\"/" "$profile"
-          sed -i "s/iso_label=\"ARCH_\$(date +%Y%m)\"/iso_label=\"ArchLTSZFS_\$(date +%Y-%m-%d)\"/" "$profile"
+          sed -i "s|^iso_label=.*|iso_label=\"ArchLTSZFS_${label_date}\"|" "$profile"
           sed -i "/choose-mirror/d" "$profile"
 
           [ -d "/tmp/$name" ] && cd /tmp && rm -rf "$name"
