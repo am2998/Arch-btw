@@ -135,16 +135,26 @@ jobs:
           mv archlinux-lts-zfs-sb-$release_date-x86_64.iso ../archlinux-lts-zfs-$release_date-x86_64.iso
           cd .. && rm -rf extracted
 
-          # Post-build verification: the ISO must contain the installer script and a
-          # UEFI boot image. This catches packaging regressions before publishing.
+          # Post-build verification: the ISO must contain the installer payloads
+          # and a UEFI boot image. This catches packaging regressions before
+          # publishing. Note the payloads are NOT on the ISO 9660 file system
+          # itself: mkarchiso packs airootfs into a squashfs image
+          # (/arch/x86_64/airootfs.sfs), so osirrox cannot extract them directly.
+          # Pull the squashfs out of the ISO and check its file listing instead.
           iso="$build_out/archlinux-lts-zfs-$release_date-x86_64.iso"
           [ -s "$iso" ]
-          osirrox -indev "$iso" -extract /root/archzfs.sh /tmp/archzfs-installer.sh
-          [ -s /tmp/archzfs-installer.sh ]
-          osirrox -indev "$iso" -extract /usr/local/share/archzfs/zfs-dracut-kernel-refresh.sh /tmp/zfs-dracut-kernel-refresh.sh
-          [ -s /tmp/zfs-dracut-kernel-refresh.sh ]
-          osirrox -indev "$iso" -extract /usr/local/share/archzfs/60-zfs-dracut-post.hook /tmp/60-zfs-dracut-post.hook
-          [ -s /tmp/60-zfs-dracut-post.hook ]
+          osirrox -indev "$iso" -extract /arch/x86_64/airootfs.sfs /tmp/archzfs-airootfs.sfs
+          [ -s /tmp/archzfs-airootfs.sfs ]
+          airootfs_listing=$(unsquashfs -l /tmp/archzfs-airootfs.sfs)
+          for payload in \
+            root/archzfs.sh \
+            usr/local/share/archzfs/zfs-dracut-kernel-refresh.sh \
+            usr/local/share/archzfs/60-zfs-dracut-post.hook; do
+            if ! grep -qF -- "$payload" <<<"$airootfs_listing"; then
+              printf 'error: airootfs.sfs does not contain /%s\n' "$payload" >&2
+              exit 1
+            fi
+          done
           osirrox -indev "$iso" -extract /EFI/BOOT/BOOTx64.EFI /tmp/BOOTx64.efi
           [ -s /tmp/BOOTx64.efi ]
           xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep 'UEFI' >/dev/null
