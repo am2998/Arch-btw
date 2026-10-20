@@ -66,6 +66,10 @@ jobs:
           # Include your installation assets inside the live ISO.
           install -Dm755 "src/scripts/archzfs.sh" "$build/airootfs/root/archzfs.sh"
           chmod +x "$build/airootfs/root/archzfs.sh"
+          install -Dm755 "src/pacman-hooks/zfs-dracut-kernel-refresh.sh" \
+            "$build/airootfs/usr/local/share/archzfs/zfs-dracut-kernel-refresh.sh"
+          install -Dm644 "src/pacman-hooks/60-zfs-dracut-post.hook" \
+            "$build/airootfs/usr/local/share/archzfs/60-zfs-dracut-post.hook"
 
           cd "$build/airootfs/etc/mkinitcpio.d"
           mv linux.preset "$kernel.preset"
@@ -86,6 +90,10 @@ jobs:
 
           cp "$build/pacman.conf" "$build/airootfs/etc/pacman.conf"
           mkdir -p "$build/airootfs/usr/share/pacman/keyrings"
+          # SigLevel = TrustAll is limited to ISO build/live usage: mkarchiso
+          # verifies with the host keyring, which does not trust the ArchZFS key.
+          # The installed system normalizes [archzfs] to SigLevel = Required
+          # (see src/scripts/archzfs.sh) after importing the release key.
           echo -e "\n[archzfs]\nSigLevel = TrustAll Optional\nServer = https://github.com/archzfs/archzfs/releases/download/experimental" >> "$build/pacman.conf"
           echo -e "\n[archzfs]\nSigLevel = TrustAll Optional\nServer = https://github.com/archzfs/archzfs/releases/download/experimental" >> "$build/airootfs/etc/pacman.conf"
           echo -e "3A9917BF0DED5C13F69AC68FABEC0A1208037BE9:4:" >> "$build/airootfs/usr/share/pacman/keyrings/archzfs-trusted"
@@ -105,12 +113,26 @@ jobs:
           ls -alh
           mkdir extracted && cd extracted
           osirrox -indev "../archlinux-lts-zfs-$release_date-x86_64.iso" -extract_boot_images ./ -extract /EFI/BOOT/BOOTx64.EFI loader.efi
-          curl -o BOOTx64.EFI https://blog.hansenpartnership.com/wp-uploads/2013/PreLoader.efi
-          curl -o HashTool.efi https://blog.hansenpartnership.com/wp-uploads/2013/HashTool.efi
+          curl -fL --retry 3 -o BOOTx64.EFI https://blog.hansenpartnership.com/wp-uploads/2013/PreLoader.efi
+          curl -fL --retry 3 -o HashTool.efi https://blog.hansenpartnership.com/wp-uploads/2013/HashTool.efi
           mcopy -D oO -i eltorito_img2_uefi.img BOOTx64.EFI loader.efi HashTool.efi ::/EFI/BOOT/
           xorriso -indev ../archlinux-lts-zfs-$release_date-x86_64.iso -outdev archlinux-lts-zfs-sb-$release_date-x86_64.iso -map_l ./ /EFI/BOOT/ BOOTx64.EFI loader.efi HashTool.efi -- -boot_image any replay -append_partition 2 0xef eltorito_img2_uefi.img
           mv archlinux-lts-zfs-sb-$release_date-x86_64.iso ../archlinux-lts-zfs-$release_date-x86_64.iso
           cd .. && rm -rf extracted
+
+          # Post-build verification: the ISO must contain the installer script and a
+          # UEFI boot image. This catches packaging regressions before publishing.
+          iso="$build_out/archlinux-lts-zfs-$release_date-x86_64.iso"
+          [ -s "$iso" ]
+          osirrox -indev "$iso" -extract /root/archzfs.sh /tmp/archzfs-installer.sh
+          [ -s /tmp/archzfs-installer.sh ]
+          osirrox -indev "$iso" -extract /usr/local/share/archzfs/zfs-dracut-kernel-refresh.sh /tmp/zfs-dracut-kernel-refresh.sh
+          [ -s /tmp/zfs-dracut-kernel-refresh.sh ]
+          osirrox -indev "$iso" -extract /usr/local/share/archzfs/60-zfs-dracut-post.hook /tmp/60-zfs-dracut-post.hook
+          [ -s /tmp/60-zfs-dracut-post.hook ]
+          osirrox -indev "$iso" -extract /EFI/BOOT/BOOTx64.EFI /tmp/BOOTx64.efi
+          [ -s /tmp/BOOTx64.efi ]
+          xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep 'UEFI' >/dev/null
 
           sha256sum archlinux-lts-zfs-$release_date-x86_64.iso > archlinux-lts-zfs-$release_date-x86_64.iso.sha256
 

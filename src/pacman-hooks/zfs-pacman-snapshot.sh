@@ -7,13 +7,24 @@ set -euo pipefail
 
 DISABLE_SENTINEL="/etc/zfs-pacman-snapshot.disable"
 LOCK_FILE="/run/lock/zfs-pacman-snapshot.lock"
+CONFIG_FILE="/etc/zfs-pacman-snapshot.conf"
+
+# Optional configuration file, sourced by pacman hooks (they do not inherit
+# environment variables from the user session).
+if [ -r "$CONFIG_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$CONFIG_FILE"
+fi
 MAX_SNAPSHOTS="${ZFS_PACMAN_MAX_SNAPSHOTS:-3}"  # Keep max 3 snapshots by default
+case "$MAX_SNAPSHOTS" in
+    ''|*[!0-9]*) MAX_SNAPSHOTS=3 ;;
+esac
 
 log() {
+    # Never let logging failure abort a pacman hook.
+    echo "zfs-pacman-snapshot: $*" >&2
     if command -v logger >/dev/null 2>&1; then
-        logger -t zfs-pacman-snapshot -- "$*"
-    else
-        echo "zfs-pacman-snapshot: $*" >&2
+        logger -t zfs-pacman-snapshot -- "$*" 2>/dev/null || true
     fi
 }
 
@@ -61,7 +72,8 @@ cleanup_old_snapshots() {
         return 0
     fi
     
-    # Get pacman snapshots sorted by creation time (oldest first)
+    # Get pacman snapshots newest first (zfs -S creation sorts descending).
+    # Anything after the first $max_snapshots entries is old enough to delete.
     local snapshots
     snapshots="$(zfs list -H -t snapshot -o name -S creation "$dataset" 2>/dev/null | grep "@pacman-" || true)"
     
@@ -142,7 +154,7 @@ main() {
     fi
 
     local ts snapname
-    ts="$(TZ=Europe/Rome date +%d-%m-%y-%H%M%S)"
+    ts="$(TZ=Europe/Rome date +%Y%m%d-%H%M%S)"
     snapname="pacman-${ts}-${targets_hash}"
     snapname="$(printf '%s' "$snapname" | sanitize)"
 
@@ -158,7 +170,10 @@ main() {
     fi
 
     snapshot_dataset "$root_ds" "$snapname"
-    snapshot_dataset "$home_ds" "$snapname"
+    # /home is often part of the root dataset; do not try to snapshot it twice.
+    if [ -n "$home_ds" ] && [ "$home_ds" != "$root_ds" ]; then
+        snapshot_dataset "$home_ds" "$snapname"
+    fi
 
     exit 0
 }

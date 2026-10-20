@@ -3,9 +3,13 @@ Operation = Install
 Operation = Upgrade
 Type = Package
 Target = linux-lts
+Target = zfs-dkms
+Target = zfs-utils
+Target = dracut
+Target = systemd
 
 [Action]
-Description = Regenerate dracut initramfs after kernel update (ZFS)
+Description = Rebuild ZFS initramfs + UKI and re-sign the boot chain (ZFS)
 When = PostTransaction
-Exec = /usr/local/sbin/zfs-dracut-kernel-refresh
+Exec = /usr/local/bin/zfs-dracut-kernel-refresh
 NeedsTargets

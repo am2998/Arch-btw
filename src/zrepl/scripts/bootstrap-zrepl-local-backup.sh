@@ -26,7 +26,6 @@ USAGE
 SOURCE_POOL=""
 BACKUP_DISK="/dev/sdc"
 BACKUP_POOL="backup"
-BACKUP_POOL_USER_SET=0
 DEFAULT_NODE="$(uname -n 2>/dev/null || echo localhost)"
 CLIENT_IDENTITY="${DEFAULT_NODE%%.*}"
 CONFIG_PATH="./zrepl.yml"
@@ -46,7 +45,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --backup-pool)
       BACKUP_POOL="${2:-}"
-      BACKUP_POOL_USER_SET=1
       shift 2
       ;;
     --client-identity)
@@ -97,10 +95,6 @@ done
 if [[ "$APPLY" -eq 1 && "$HAVE_ZFS_TOOLS" -eq 0 ]]; then
   echo "Error: --apply requires both zpool and zfs commands installed." >&2
   exit 1
-fi
-
-if [[ "$HAVE_ZFS_TOOLS" -eq 1 && "$BACKUP_POOL_USER_SET" -eq 0 ]]; then
-  BACKUP_POOL="backup"
 fi
 
 if [[ -z "$SOURCE_DATASET" ]]; then

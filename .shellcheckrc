@@ -1,0 +1,3 @@
+# ShellCheck configuration for this repository.
+# Scripts are self-contained; follow sourced files when they are explicit.
+external-sources=true

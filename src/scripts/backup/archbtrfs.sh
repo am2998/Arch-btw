@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# DEPRECATED: legacy script kept for historical reference only.
+# It is not maintained and does not receive fixes or compatibility updates.
+# See the repository README before using it.
+
 # LUKS + LVM + BTRFS + SYSTEMD-BOOT
 # KDE
 

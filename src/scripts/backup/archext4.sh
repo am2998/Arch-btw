@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# DEPRECATED: legacy script kept for historical reference only.
+# It is not maintained and does not receive fixes or compatibility updates.
+# See the repository README before using it.
+
 # EXT4 + EFISTUB 
 
 exec > >(tee -a result.log) 2>&1
@@ -8,6 +12,11 @@ exec > >(tee -a result.log) 2>&1
 # --------------------------------------------------------------------------------------------------------------------------
 # helper functions                                                                                     
 # --------------------------------------------------------------------------------------------------------------------------
+
+error_exit() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
 
 get_password() {
     local prompt=$1
@@ -30,7 +39,6 @@ select_install_disk() {
     local -a disks
     local index
     local selection
-    local confirm_disk
 
     mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}')
     [ "${#disks[@]}" -gt 0 ] || error_exit "No disks found."
