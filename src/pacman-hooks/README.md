@@ -16,6 +16,7 @@ These files provide:
 - Pacman hook (PostTransaction) on `linux-lts`, `zfs-dkms`, `zfs-utils`, `dracut` and `systemd`.
 - Best-effort rebuild of `/boot/initramfs-linux-lts.img` and `/efi/EFI/Linux/arch-linux-lts.efi`.
 - Re-signs the UKI, and after a `systemd` update also reinstalls/re-signs systemd-boot.
+- If `sbctl` or its stored keys are unavailable, the target file is left unsigned and a warning is logged (this alone does not fail the hook).
 - Keeps `systemd-boot-update.service` disabled: its unattended `bootctl update` is not signed.
 - Mounts `/efi` temporarily when it is not already mounted (useful for manual setups where the ESP is not in `/etc/fstab`).
 

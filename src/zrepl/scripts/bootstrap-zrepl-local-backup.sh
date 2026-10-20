@@ -142,9 +142,14 @@ run() {
   fi
 }
 
-echo "Writing zrepl config to: $CONFIG_PATH"
-echo "Using source dataset: $SOURCE_DATASET"
-cat > "$CONFIG_PATH" <<EOF_CONFIG
+# Do not silently clobber an existing config on preview runs: only --apply
+# may overwrite the file.
+if [[ -e "$CONFIG_PATH" && "$APPLY" -eq 0 ]]; then
+  echo "Dry-run note: '$CONFIG_PATH' already exists and was NOT overwritten. Re-run with --apply (or delete the file) to regenerate it." >&2
+else
+  echo "Writing zrepl config to: $CONFIG_PATH"
+  echo "Using source dataset: $SOURCE_DATASET"
+  cat > "$CONFIG_PATH" <<EOF_CONFIG
 jobs:
 - type: push
   name: backup_hourly
@@ -186,6 +191,7 @@ jobs:
     type: local
     listener_name: backup_sink
 EOF_CONFIG
+fi
 
 if [[ "$HAVE_ZFS_TOOLS" -eq 0 ]]; then
   echo "Skipping pool/dataset checks because zpool/zfs are not available in this environment."

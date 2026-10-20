@@ -124,9 +124,19 @@ select_install_disk() {
     local index
     local selection
     local selection_index
+    local live_disk
 
-    mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}')
-    [ "${#disks[@]}" -gt 0 ] || die "No disks found (lsblk reported no block devices)."
+    # Skip zram/loop devices (lsblk classifies them as "disk") and, when it can
+    # be identified, the disk hosting the running live ISO (usually the USB
+    # installation medium). Detection failures degrade to no exclusion.
+    live_disk="$(findmnt -n -o SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
+    if [ -n "$live_disk" ]; then
+        live_disk="/dev/$(lsblk -dno PKNAME "$live_disk" 2>/dev/null || true)"
+    fi
+    mapfile -t disks < <(lsblk -dpno NAME,TYPE | awk -v live="$live_disk" '
+        $2 == "disk" && $1 != live && $1 !~ /^\/dev\/(zram|loop)/ {print $1}')
+    [ "${#disks[@]}" -gt 0 ] || \
+        die "No suitable disks found (after excluding zram/loop and, if detectable, the live medium)."
 
     echo "Available disks:"
     for index in "${!disks[@]}"; do

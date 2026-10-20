@@ -166,8 +166,14 @@ verify_uki() {
 sign_file() {
     local file="$1"
 
-    command -v sbctl >/dev/null 2>&1 || return 0
-    [ -f /var/lib/sbctl/keys/db/db.key ] || return 0
+    if ! command -v sbctl >/dev/null 2>&1; then
+        log "warning: sbctl not found; leaving $file UNSIGNED on the ESP"
+        return 0
+    fi
+    if [ ! -f /var/lib/sbctl/keys/db/db.key ]; then
+        log "warning: no sbctl db key; leaving $file UNSIGNED on the ESP"
+        return 0
+    fi
     [ -f "$file" ] || return 0
 
     if ! sbctl sign -s "$file" >/dev/null 2>&1; then

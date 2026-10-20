@@ -31,6 +31,7 @@ This will:
 - use backup pool name `backup`
 - auto-detect the source dataset currently mounted on `/` (under the source pool)
 - generate `./zrepl.yml`
+  - in dry-run an existing `zrepl.yml` is **not** overwritten: re-run with `--apply` (or delete the file) to regenerate it
 - print the commands it would run for pool import/create + dataset creation
 
 ## 2) Apply pool import/dataset setup

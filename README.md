@@ -56,7 +56,7 @@ chmod +x /root/archzfs.sh
 /root/archzfs.sh
 ```
 
-The installer validates the environment (root, UEFI, network, available disks), asks for the target disk and requires typing the device path before erasing it.
+The installer validates the environment (root, UEFI, network, available disks), asks for the target disk and requires typing the device path before erasing it. Candidate disks exclude `zram`/loop devices and — when it can be detected — the disk hosting the running live medium, so the installation medium itself is not offered as a target.
 
 ## Script Implementation Details 🧩
 
